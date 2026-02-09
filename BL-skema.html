@@ -148,20 +148,116 @@
     }
     
     /* Sticky Columns - Matching background to prevent see-through */
-    .col-select { position: sticky; left: 0; width: 30px; z-index: 12; background-color: var(--bg-header); border-right: 1px solid var(--border); }
-    .col-togt { position: sticky; left: 30px; width: 80px; z-index: 12; background-color: var(--bg-body); border-right: 1px solid var(--border); font-weight: bold; }
-    .col-station { position: sticky; left: 110px; width: 140px; z-index: 11; background-color: var(--bg-body); border-right: 1px solid var(--border); text-align: left; padding-left: 8px;}
-    .col-nr { position: sticky; left: 250px; width: 50px; z-index: 11; background-color: var(--bg-body); border-right: 1px solid var(--border); }
-    .col-link-1 { position: sticky; left: 300px; width: 50px; z-index: 11; background-color: var(--bg-body); border-right: 1px solid var(--border); font-size: 11px; }
-    .col-link-2 { position: sticky; left: 350px; width: 50px; z-index: 11; background-color: var(--bg-body); border-right: 1px solid var(--border); font-size: 11px; }
-    
-    /* Summary Column Highlight */
-    .col-summary { 
-        position: sticky; left: 400px; width: 60px; z-index: 11; 
-        background-color: #3c4043; border-right: 2px solid #777; 
-        font-weight: bold; color: #fff; 
+    /* 1. Kolonne: Checkbox */
+    .col-select { 
+        position: sticky; 
+        left: 0; 
+        width: 30px; 
+        min-width: 30px; /* Tvinger bredden */
+        z-index: 12; 
+        background-color: var(--bg-header); 
+        border: 1px solid var(--border); 
+    }
+
+    /* 2. Kolonne: Togt */
+    .col-togt { 
+        position: sticky; 
+        left: 30px; 
+        width: 50px; 
+        min-width: 50px; /* Tvinger bredden */
+        z-index: 12; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border); 
+        font-weight: bold; 
+    }
+
+	/* Station kolonne: Fast bredde og '...' når der ikke redigeres */
+    .col-station { 
+        position: sticky; 
+        left: 80px; 
+        width: 230px; 
+        max-width: 230px; /* Vigtig for at begrænse teksten */
+        z-index: 11; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border); 
+        text-align: left; 
+        padding-left: 8px;
+        
+        /* Disse tre linjer sikrer at den kun fylder én linje og viser '...' */
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
     }
     
+    /* Når man klikker i cellen (redigering) */
+    .col-station:focus {
+		left: 80px;
+		width: 230px;
+        max-width: 230px;
+        text-overflow: clip;
+        
+        /* Behold overflow:hidden -> dette får teksten til at 'scrolle' 
+           med markøren i stedet for at flyde ud over kanten */
+        overflow: hidden; 
+        
+        /* Vi beholder sticky positionering så den ikke hopper */
+        position: sticky;
+        z-index: 11;
+        cursor: text;
+		outline: 2px solid var(--google-blue);
+        outline-offset: -2px; /* Holder rammen inden for cellen */
+    }
+
+/* RETTET: Nu med sticky position og korrekt startsted (310px) */
+    .col-nr {
+        width: 80px;            
+        min-width: 80px;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        
+        /* Disse linjer manglede før: */
+        position: sticky; 
+        left: 310px;            /* 110px (Station start) + 200px (Station bredde) */
+        z-index: 11; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border); 
+    }
+
+    /* RETTET: Flyttet til 390px så den ikke ligger oven i Nr */
+    .col-link-1 { 
+        position: sticky; 
+        left: 390px;            /* 310px (Nr start) + 80px (Nr bredde) */
+        width: 50px; 
+        z-index: 11; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border); 
+        font-size: 11px; 
+    }
+
+    /* RETTET: Flyttet til 440px */
+    .col-link-2 { 
+        position: sticky; 
+        left: 440px;            /* 390px + 50px */
+        width: 50px; 
+        z-index: 11; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border);
+        font-size: 11px; 
+    }
+    
+    /* RETTET: Flyttet til 490px */
+    .col-summary { 
+        position: sticky; 
+        left: 490px;            /* 440px + 50px */
+        width: 60px; 
+        z-index: 11; 
+        background-color: #3c4043; 
+		border: 1px solid var(--border);
+        border-right: 2px solid #777; 
+        font-weight: bold; 
+        color: #fff; 
+    }
     /* Sum Columns */
     .col-sum { background-color: #2d2e31; color: #9aa0a6; font-weight: bold; min-width: 30px; border: 1px solid var(--border); font-size: 11px; }
 
@@ -181,13 +277,22 @@
     }
 
     /* Selection Logic */
-    tr.selected td { background-color: var(--selection-bg) !important; }
-    /* Override sticky columns background when selected */
-    tr.selected .col-togt, tr.selected .col-station, tr.selected .col-nr, tr.selected .col-link-1, tr.selected .col-link-2 {
-        background-color: #2d333b !important; 
-        border-top: 1px solid var(--google-blue);
-        border-bottom: 1px solid var(--google-blue);
-    }
+		tr.selected .col-select,
+		tr.selected .col-togt,
+		tr.selected .col-station,
+		tr.selected .col-nr,
+		tr.selected .col-link-1,
+		tr.selected .col-link-2,
+		tr.selected .col-summary {
+			background-color: #2d333b !important; /* Mørk grå/blå markering */
+			border-top: 1px solid var(--google-blue);
+			border-bottom: 1px solid var(--google-blue);
+		}
+
+		/* Sørg for at uge-cellerne IKKE bliver farvet */
+		tr.selected td {
+			background-color: transparent; 
+		}
     
     .row-checkbox { cursor: pointer; width: 14px; height: 14px; margin-top: 6px; accent-color: var(--google-blue); }
     .locked-cell { cursor: default; color: #e8eaed; }
@@ -495,6 +600,82 @@
         }
     }
 
+	function handlePaste(e, type) {
+		e.preventDefault(); // Stop browseren i at indsætte HTML/Excel-koder
+		
+		let text = (e.clipboardData || window.clipboardData).getData('text');
+
+		if (type === 'nr') {
+			text = text.replace(/\D/g, '').substring(0, 8);
+		} else if (type === 'station') {
+			text = text.replace(/(\r\n|\n|\r)/gm, " ");
+		}
+		document.execCommand('insertText', false, text);
+	}
+	
+		// Håndterer paste af BÅDE enkelt celler og større områder (fra Excel)
+	function handleWeekPaste(e, startRowIdx, startWeekIdx) {
+		e.preventDefault();
+		
+		// 1. Hent data
+		const clipboardText = (e.clipboardData || window.clipboardData).getData('text');
+		if (!clipboardText) return;
+
+		// 2. Opdel i rækker (Excel bruger linjeskift)
+		// Vi fjerner tomme rækker til sidst, som Excel nogle gange tager med
+		const rows = clipboardText.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
+
+		let changesMade = false;
+
+		// 3. Gennemgå hver række fra clipboardet
+		rows.forEach((rowStr, rOffset) => {
+			const targetRowIdx = startRowIdx + rOffset;
+			
+			// Stop hvis vi er nået ud over antallet af rækker i systemet
+			if (targetRowIdx >= appData.rows.length) return;
+
+			// Opdel rækken i kolonner (Excel bruger tabulator '\t')
+			const cols = rowStr.split('\t');
+
+			cols.forEach((colVal, wOffset) => {
+				const targetWeekIdx = startWeekIdx + wOffset;
+
+				// Stop hvis vi er nået ud over uge 53 (eller hvor mange uger du har)
+				if (targetWeekIdx >= UGER) return;
+
+				// 4. Validering (Samme logik som før: Kun kendte koder)
+				let validatedVal = "";
+				for (let char of colVal) {
+					// Tjek om bogstavet findes i indstillingerne
+					const setting = appData.settings.find(s => 
+						(s.disp && s.disp.toLowerCase() === char.toLowerCase()) || 
+						(s.key && s.key.toLowerCase() === char.toLowerCase())
+					);
+					if (setting) {
+						validatedVal += setting.disp;
+					}
+				}
+
+				// 5. Opdater data-modellen
+				if (!appData.rows[targetRowIdx].weeks) appData.rows[targetRowIdx].weeks = {};
+				if (!appData.rows[targetRowIdx].weeks[targetWeekIdx]) {
+					appData.rows[targetRowIdx].weeks[targetWeekIdx] = { val: '', stat: 0 };
+				}
+
+				// Kun opdater hvis der faktisk er en ændring (eller det er en tom streng der skal slette)
+				// Vi tillader at overskrive med tom streng, hvis man paster tomme celler
+				appData.rows[targetRowIdx].weeks[targetWeekIdx].val = validatedVal;
+				changesMade = true;
+			});
+		});
+
+		// 6. Gem og optegn hele tabellen på ny, hvis der skete ændringer
+		if (changesMade) {
+			markDirty(true);
+			render(); 
+		}
+	}
+	
     function render() {
         const tbody = document.getElementById('tbody'); tbody.innerHTML = '';
         const headerRow = document.getElementById('headerRow');
@@ -550,6 +731,7 @@
 
             for (let w = 0; w < UGER; w++) {
                 const td = document.createElement('td');
+				td.addEventListener('paste', (e) => handleWeekPaste(e, rIdx, w));
                 const cellData = row.weeks && row.weeks[w] ? row.weeks[w] : { val: '', stat: 0 };
                 td.innerText = cellData.val;
                 if(cellData.note) { td.classList.add('has-note'); td.title = cellData.note; } else { td.title = ""; }
@@ -591,7 +773,58 @@
         });
     }
 
-    function createMetaCell(rIdx, key, val, classes) { const td = document.createElement('td'); td.contentEditable = !isLocked; td.className = classes || ''; if(isLocked) td.className += ' locked-cell'; td.innerText = val || ''; td.oninput = (e) => { appData.rows[rIdx][key] = e.target.innerText; markDirty(true); }; return td; }
+    // Denne funktion erstatter din gamle createMetaCell
+    function createMetaCell(rIdx, key, val, classes) { 
+        const td = document.createElement('td'); 
+        td.contentEditable = !isLocked; 
+        td.className = classes || ''; 
+        if(isLocked) td.className += ' locked-cell'; 
+        td.innerText = val || ''; 
+        
+        // Gem data når man skriver
+        td.oninput = (e) => { 
+            // Hvis det er 'nr' kolonnen, fjern alt der ikke er tal mens man skriver
+            if(key === 'nr') {
+                 const raw = e.target.innerText.replace(/\D/g, '').substring(0, 8);
+                 if(e.target.innerText !== raw) {
+                     e.target.innerText = raw;
+                     // Flyt markør til slutning (nødvendigt når vi retter teksten mens man skriver)
+                     const range = document.createRange();
+                     const sel = window.getSelection();
+                     range.selectNodeContents(td);
+                     range.collapse(false);
+                     sel.removeAllRanges();
+                     sel.addRange(range);
+                 }
+            }
+            appData.rows[rIdx][key] = e.target.innerText; 
+            markDirty(true); 
+        }; 
+
+        // NYT: Håndter Paste (Fjern formatering)
+        td.addEventListener('paste', (e) => {
+            e.preventDefault(); // Stop standard paste (som tager farver/html med)
+            
+            // Hent teksten helt rent
+            let text = (e.clipboardData || window.clipboardData).getData('text');
+
+            if (key === 'nr') {
+                // Kun tal, max 8 cifre
+                text = text.replace(/\D/g, '').substring(0, 8);
+            } else if (key === 'station') {
+                // Ingen linjeskift i station
+                text = text.replace(/(\r\n|\n|\r)/gm, " ");
+            }
+
+            // Indsæt den rensede tekst
+            document.execCommand('insertText', false, text);
+            // Opdater data modellen med det samme
+            appData.rows[rIdx][key] = td.innerText;
+            markDirty(true);
+        });
+
+        return td; 
+    }
     function handleCellDblClick(rIdx, wIdx) { const dblStatIndex = appData.statusSettings.findIndex(s => s.shortcut === 'dblclick'); if (dblStatIndex >= 0) { if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 }; appData.rows[rIdx].weeks[wIdx].stat = dblStatIndex; markDirty(true); render(); } }
     function handleInput(e, rIdx, wIdx) {
         if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 };
