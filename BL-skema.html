@@ -306,9 +306,132 @@
     .settings-table td input { background: #202124; color: #fff; border: 1px solid #5f6368; width: 100%; box-sizing: border-box; }
     .settings-table td input:focus { border-color: var(--google-blue); }
     input[type="color"] { width: 40px; height: 30px; border: none; cursor: pointer; padding: 0; background: none; }
+
+
+/* --- MOBIL TILPASNING (OPDATERET BREDDE) --- */
+    @media screen and (max-width: 768px) {
+        
+        /* 1. Skjul alt 'støj' */
+        .nav-tabs, 
+        .col-select, .col-nr, .col-summary, .col-sum,
+        #btnLock, #btnAddRow, #btnSave,#btnCloseTop,
+        .copy-actions, .autosave-wrapper, .legend-container, .file-info, .dirty-indicator, 
+        .col-station:focus
+        {
+            display: none !important;
+        }
+
+        /* 2. Opsætning af Tabel til fuld bredde */
+        .sheet-container {
+            margin-bottom: 70px;
+            overflow-x: hidden;
+        }
+        
+        /* VIGTIGT: table-layout: fixed tvinger browseren til at lytte til vores %-bredder */
+        table {
+            width: 100% !important; 
+            table-layout: fixed !important; 
+            border-collapse: collapse;
+        }
+
+        /* 3. Definer bredder på OVERSKRIFTERNE (th) */
+        /* Togt: 7% (ca 1/6) */
+        th.col-togt { width: 7% !important; }
+        
+        /* Station: 40% (lidt over 2/6 - giver god plads til tekst) */
+        th.col-station { width: 40% !important; }
+        
+        /* Links: 20% tilsammen (7.5% hver) - rigeligt til et ikon */
+        th.col-link-1 { width: 12.5% !important; }
+        th.col-link-2 { width: 12.5% !important; }
+        
+        /* Uge: 18% (Resten - vigtig at være bred nok til at ramme) */
+        /* Vi rammer den overskrift der IKKE er skjult */
+        th:not(.mobile-hidden):not(.col-togt):not(.col-station):not(.col-link-1):not(.col-link-2) {
+             width: 18% !important;
+        }
+
+        /* 4. Juster cellernes indhold (td) */
+        .col-togt, .col-station, .col-link-1, .col-link-2 {
+            position: static !important; /* Fjern sticky */
+            padding: 0 4px !important;
+            box-sizing: border-box;
+        }
+
+        /* Togt Styling */
+        .col-togt { font-size: 10px; }
+
+        /* Station Styling */
+        .col-station {
+            font-size: 11px;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis; /* Prikker hvis teksten er for lang */
+        }
+
+        /* Links Styling */
+        .col-link-1, .col-link-2 { font-size: 9px; padding: 0 !important; }
+        .col-link-1 input, .col-link-2 input { display:none; } /* Skjul input felter i links på mobil */
+        /* Hvis du vil vise links som tekst/link i stedet for input: */
+        .col-link-1::before { content: '🔗'; } 
+        .col-link-2::before { content: '🔗'; } 
+
+        /* Skjul uger der ikke er den aktuelle */
+        .mobile-hidden { display: none !important; }
+
+        /* 5. Toolbar & Menuer */
+        .toolbar {
+            background: #202124;
+            padding: 10px;
+            justify-content: center;
+            border-bottom: 1px solid #5f6368;
+        }
+        .week-selector {
+            width: 100%;
+            justify-content: space-between;
+            font-size: 16px;
+            color: #fff;
+            background: #3c4043;
+            padding: 8px 20px;
+            border-radius: 20px;
+        }
+        .week-selector input { font-size: 16px; width: 50px; text-align:center; border:none; background:transparent; color:#fff; }
+
+        /* Bundmenu */
+        #mobileBottomBar {
+            display: flex !important;
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #202124;
+            padding: 10px;
+            gap: 10px;
+            border-top: 1px solid #5f6368;
+            z-index: 9999;
+        }
+
+        /* Generel højde */
+        th, td { height: 45px; } /* Lidt højere celler for nemmere tryk */
+    }
+		
 </style>
 </head>
 <body>
+
+<div id="multiTabWarning" class="overlay-screen" style="display:none; z-index:99999; background: #202124;">
+    <div class="warning-box" style="border-top: 4px solid #d93025;">
+        <h2 style="color:#d93025;">Siden er allerede åben!</h2>
+        <p>Du har allerede dette værktøj åbent i en anden fane eller et andet vindue.</p>
+        <p>For at undgå datatab er denne fane blevet deaktiveret.</p>
+        <div style="margin-top:20px;">
+            <button onclick="window.close()" class="primary" style="background:#5f6368;">Luk denne fane</button>
+            <br><br>
+            <button onclick="forceOpen()" style="background:transparent; border:none; color:#5f6368; text-decoration:underline; font-size:11px; cursor:pointer;">
+                Jeg er ligeglad, brug denne fane alligevel (Risiko for fejl!)
+            </button>
+        </div>
+    </div>
+</div>
 
 <div id="updateBanner">
     OBS: En kollega har netop gemt en ny version af filen! 
@@ -342,7 +465,7 @@
 <div id="view-plan" class="view-section active">
     <div class="toolbar">
         <button id="btnSave" title="Gem (Ctrl+S)" class="primary">Gem</button>
-        <button onclick="attemptClose()">Luk</button>
+        <button id="btnCloseTop" onclick="attemptClose()">Luk</button>
         <button id="btnLock" class="locked-btn" onclick="toggleLock()" title="Klik for at redigere">Låst (Visning)</button>
         
         <div class="week-selector">
@@ -411,7 +534,38 @@
     </div>
 </div>
 
+<div id="mobileBottomBar" style="display:none;">
+    <button onclick="attemptClose()" style="background:#d93025; color:white; flex:1; padding:15px; border-radius:8px; border:none; font-size:14px;">Luk</button>
+    <button id="btnMobileSave" onclick="performSave(false)" style="background:#1e8e3e; color:white; flex:2; padding:15px; border-radius:8px; border:none; font-size:14px; font-weight:bold;">Gem</button>
+</div>
+
 <script>
+	// --- FORHINDRE FLERE FANER ---
+    const channelName = 'plan_tool_channel';
+    const bc = new BroadcastChannel(channelName);
+
+    // 1. Lyt efter beskeder fra andre faner
+    bc.onmessage = (event) => {
+        // Hvis en ny fane spørger "er nogen her?", svarer vi "ja"
+        if (event.data === 'new_tab_opening') {
+            bc.postMessage('tab_already_open');
+        }
+        // Hvis en eksisterende fane siger "jeg er her", så låser vi os selv
+        if (event.data === 'tab_already_open') {
+            document.getElementById('multiTabWarning').style.display = 'flex';
+        }
+    };
+
+    // 2. Fortæl verden at vi åbner (spørg om andre er der)
+    bc.postMessage('new_tab_opening');
+
+    // Funktion til at tvinge åbning (hvis brugeren insisterer)
+    function forceOpen() {
+        document.getElementById('multiTabWarning').style.display = 'none';
+        // Vi fortæller evt. andre faner at DE skal lukke (valgfrit)
+        // bc.postMessage('tab_already_open'); 
+    }
+
     const UGER = 53;
     const TOGT_PALETTE = ['#882e36','#8c5c2e','#8c862e','#4a8c38','#2e5c8c','#6a2e8c','#8c2e75','#5a6838','#386862','#4c526d','#8c4a4e','#8c625e','#8c7a6b','#5a6838','#386862','#4c526d','#7d7536','#6d5a6d','#8c322d','#387d38']; 
     const DEFAULT_CODES = [{ key: 'q', disp: 'Q', desc: 'Vandføring' }, { key: 'h', disp: 'H', desc: 'Skalapæl' }, { key: 'k', disp: 'K', desc: 'Kemi' }, { key: 's', disp: 's', desc: 'Salinitet' }, { key: 'f', disp: 'f', desc: 'Jern' }, { key: 'a', disp: 'a', desc: 'Alkalinitet' }];
@@ -440,7 +594,26 @@
     document.getElementById('summaryHeader').innerText = "Uge " + displayWeek;
 
     const headerRow = document.getElementById('headerRow');
-    for (let i = 1; i <= UGER; i++) { let th = document.createElement('th'); th.innerText = i; if(i === displayWeek) { th.style.backgroundColor = "#444"; th.style.borderBottom = "2px solid #8ab4f8"; } headerRow.appendChild(th); }
+    // Slet gamle uge-headers hvis vi kører render igen, eller bare ved start:
+    // (Note: Din kode genererer dem kun én gang ved start, så erstat den blok)
+    
+    for (let i = 1; i <= UGER; i++) { 
+        let th = document.createElement('th'); 
+        th.innerText = i; 
+        
+        // --- NYT: Skjul på mobil hvis ikke aktuel uge ---
+        // Vi opdaterer dette dynamisk i updateSummaryColumn() i stedet for her, 
+        // da headeren kun laves én gang. 
+        // Så giv dem et ID eller en klasse så vi kan finde dem.
+        th.className = 'th-week-' + i; // Giv unik klasse
+        // -----------------------------------------------
+
+        if(i === displayWeek) { 
+            th.style.backgroundColor = "#444"; 
+            th.style.borderBottom = "2px solid #8ab4f8"; 
+        } 
+        headerRow.appendChild(th); 
+    }
     updateLegend();
 
     setInterval(() => { const chk = document.getElementById('chkAutoSave'); if (chk && chk.checked && hasUnsavedChanges && fileHandle) performAutoSave(); }, AUTO_SAVE_INTERVAL_MS);
@@ -505,7 +678,24 @@
         markDirty(false); updateLegend(); render();
     }
 
-    function markDirty(isDirty) { hasUnsavedChanges = isDirty; const ind = document.getElementById('dirtyIndicator'); const btn = document.getElementById('btnSave'); if (isDirty) { ind.style.display = 'inline'; document.title = "* Planlægning 2026"; btn.style.background = "#fbbc04"; btn.style.color = "#000"; } else { ind.style.display = 'none'; document.title = "Planlægning 2026"; btn.style.background = "#1e8e3e"; btn.style.color = "#fff"; } }
+    function markDirty(isDirty) { 
+        hasUnsavedChanges = isDirty; 
+        const ind = document.getElementById('dirtyIndicator'); 
+        const btnDesktop = document.getElementById('btnSave'); 
+        const btnMobile = document.getElementById('btnMobileSave'); // NYT
+        
+        if (isDirty) { 
+            if(ind) ind.style.display = 'inline'; 
+            document.title = "* Planlægning 2026"; 
+            if(btnDesktop) { btnDesktop.style.background = "#fbbc04"; btnDesktop.style.color = "#000"; btnDesktop.innerText = "Gem*"; }
+            if(btnMobile) { btnMobile.style.background = "#fbbc04"; btnMobile.style.color = "#000"; btnMobile.innerText = "Gem ændringer*"; } // NYT
+        } else { 
+            if(ind) ind.style.display = 'none'; 
+            document.title = "Planlægning 2026"; 
+            if(btnDesktop) { btnDesktop.style.background = "#1e8e3e"; btnDesktop.style.color = "#fff"; btnDesktop.innerText = "Gem"; }
+            if(btnMobile) { btnMobile.style.background = "#1e8e3e"; btnMobile.style.color = "#fff"; btnMobile.innerText = "Gem"; } // NYT
+        } 
+    }
 
     async function performSave(silent = false) {
         if (!fileHandle) { try { fileHandle = await window.showSaveFilePicker({ suggestedName: 'plan.json' }); await saveHandle(fileHandle); } catch (e) { return false; } }
@@ -615,6 +805,7 @@
 	
 		// Håndterer paste af BÅDE enkelt celler og større områder (fra Excel)
 	function handleWeekPaste(e, startRowIdx, startWeekIdx) {
+		if (isLocked) return;
 		e.preventDefault();
 		
 		// 1. Hent data
@@ -676,7 +867,103 @@
 		}
 	}
 	
+	// --- MOBIL FUNKTIONALITET ---
+    let currentMobileTarget = null; // Gemmer hvilken celle vi redigerer
+
+    function isMobile() {
+        return window.innerWidth <= 768;
+    }
+
+    function handleCellClick(e, rIdx, wIdx) {
+        if (isMobile()) {
+            // På mobil: Åbn menu i stedet for at fokusere/tastatur
+            e.preventDefault(); // Stop tastatur
+            document.activeElement.blur(); // Fjern fokus
+            openMobileMenu(rIdx, wIdx);
+        } else {
+            // På desktop: Normal opførsel (fokus)
+            e.target.focus();
+        }
+    }
+
+    function openMobileMenu(rIdx, wIdx) {
+        currentMobileTarget = { r: rIdx, w: wIdx };
+        
+        // Vi behøver ikke længere hente tekst-værdien, da feltet er væk
+        
+        const container = document.getElementById('mobileStatusOptions');
+        container.innerHTML = '';
+        
+        appData.statusSettings.forEach((stat, idx) => {
+            const btn = document.createElement('button');
+            btn.style.width = "40px";
+            btn.style.height = "40px";
+            btn.style.borderRadius = "50%";
+            btn.style.border = "2px solid #5f6368";
+            btn.style.background = stat.color;
+            btn.style.cursor = "pointer";
+            
+            // Hvis det er 'Ingen status' (index 0)
+            if (idx === 0) { 
+                btn.innerText = "X"; 
+                btn.style.color = "#fff";
+                btn.style.background = "transparent";
+            }
+
+            btn.onclick = () => {
+                setMobileStatus(idx);
+            };
+            container.appendChild(btn);
+        });
+
+        document.getElementById('mobileActionMenu').style.display = 'flex';
+    }
+
+    function closeMobileMenu() {
+        document.getElementById('mobileActionMenu').style.display = 'none';
+        currentMobileTarget = null;
+    }
+
+    function setMobileStatus(statIdx) {
+        if (!currentMobileTarget) return;
+        const { r, w } = currentMobileTarget;
+        
+        if (!appData.rows[r].weeks) appData.rows[r].weeks = {};
+        if (!appData.rows[r].weeks[w]) appData.rows[r].weeks[w] = { val: '', stat: 0 };
+
+        appData.rows[r].weeks[w].stat = statIdx;
+        markDirty(true);
+        render();
+        closeMobileMenu();
+    }
+
+    function saveMobileInput() {
+        if (!currentMobileTarget) return;
+        const { r, w } = currentMobileTarget;
+        const val = document.getElementById('mobileTextInput').value;
+
+        if (!appData.rows[r].weeks) appData.rows[r].weeks = {};
+        if (!appData.rows[r].weeks[w]) appData.rows[r].weeks[w] = { val: '', stat: 0 };
+
+        appData.rows[r].weeks[w].val = val;
+        markDirty(true);
+        render();
+        closeMobileMenu();
+    }
+	
     function render() {
+		// --- NYT: Opdater header synlighed ---
+        for (let i = 1; i <= UGER; i++) {
+            const th = document.querySelector('.th-week-' + i);
+            if (th) {
+                if (i !== displayWeek) {
+                    th.classList.add('mobile-hidden');
+                } else {
+                    th.classList.remove('mobile-hidden');
+                }
+            }
+        }
+        // -------------------------------------
         const tbody = document.getElementById('tbody'); tbody.innerHTML = '';
         const headerRow = document.getElementById('headerRow');
         while (headerRow.children.length > 60) { headerRow.removeChild(headerRow.lastChild); }
@@ -730,36 +1017,43 @@
             tr.appendChild(summaryTd);
 
             for (let w = 0; w < UGER; w++) {
-                const td = document.createElement('td');
-				td.addEventListener('paste', (e) => handleWeekPaste(e, rIdx, w));
-                const cellData = row.weeks && row.weeks[w] ? row.weeks[w] : { val: '', stat: 0 };
-                td.innerText = cellData.val;
-                if(cellData.note) { td.classList.add('has-note'); td.title = cellData.note; } else { td.title = ""; }
-                
-                // DARK MODE STATUS COLOR LOGIC
-                if (cellData.stat === 0) {
-                    // Default / Empty
-                    td.style.backgroundColor = ""; 
-                    td.style.color = "";
-                } else {
-                    // Active Status
-                    if (appData.statusSettings[cellData.stat]) {
-                        td.style.backgroundColor = appData.statusSettings[cellData.stat].color;
-                        td.style.color = "#000"; // Force black text
-                    }
-                }
+				const td = document.createElement('td');
+				const cellData = row.weeks && row.weeks[w] ? row.weeks[w] : { val: '', stat: 0 };
+				td.innerText = cellData.val;
+				
+				// --- NYT: Skjul uger der ikke er den aktuelle (via CSS class) ---
+				// Uge-nummer er w + 1. Hvis det IKKE matcher displayWeek, tilføj skjule-klasse
+				if ((w + 1) !== displayWeek) {
+					td.className = 'mobile-hidden'; 
+				}
+				// -------------------------------------------------------------
 
-                if((w + 1) === displayWeek) { 
-                    td.style.borderLeft = "2px solid #777"; 
-                    td.style.borderRight = "2px solid #777"; 
-                    if (cellData.stat === 0) {
-                        td.style.backgroundColor = "rgba(255,255,255,0.05)"; // Slight highlight for active week empty cell
-                    }
-                }
-                
-                td.tabIndex = 0; td.onclick = () => { td.focus(); }; td.ondblclick = () => handleCellDblClick(rIdx, w); td.onkeydown = (e) => handleInput(e, rIdx, w);
-                tr.appendChild(td);
-            }
+				if(cellData.note) { td.classList.add('has-note'); td.title = cellData.note; }
+				
+				// Farve logik (behold din eksisterende logik her)
+				if (cellData.stat !== 0 && appData.statusSettings[cellData.stat]) {
+					td.style.backgroundColor = appData.statusSettings[cellData.stat].color;
+					td.style.color = "#000"; 
+				}
+
+				// Markering af aktiv uge
+				if((w + 1) === displayWeek) { 
+					td.style.borderLeft = "2px solid #777"; 
+					td.style.borderRight = "2px solid #777"; 
+				}
+				
+				td.tabIndex = 0; 
+				
+				// --- NYT: Brug handleCellClick i stedet for direkte focus ---
+				td.onclick = (e) => handleCellClick(e, rIdx, w);
+				// -----------------------------------------------------------
+
+				td.ondblclick = () => handleCellDblClick(rIdx, w); 
+				td.onkeydown = (e) => handleInput(e, rIdx, w);
+				td.addEventListener('paste', (e) => handleWeekPaste(e, rIdx, w));
+
+				tr.appendChild(td);
+			}
 
             if (!isLocked) {
                 appData.settings.forEach(setting => {
@@ -827,15 +1121,85 @@
     }
     function handleCellDblClick(rIdx, wIdx) { const dblStatIndex = appData.statusSettings.findIndex(s => s.shortcut === 'dblclick'); if (dblStatIndex >= 0) { if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 }; appData.rows[rIdx].weeks[wIdx].stat = dblStatIndex; markDirty(true); render(); } }
     function handleInput(e, rIdx, wIdx) {
-        if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 };
-        let cell = appData.rows[rIdx].weeks[wIdx]; let needsRender = false; const key = e.key.toLowerCase(); 
+        if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; 
+        if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 };
+        
+        let cell = appData.rows[rIdx].weeks[wIdx]; 
+        let needsRender = false; 
+        const key = e.key.toLowerCase(); 
+        
+        // Tjek for genveje til status (Tilladt selvom det er låst)
         const shortcutStatIndex = appData.statusSettings.findIndex(s => s.shortcut && s.shortcut.toLowerCase() === key);
-        if (shortcutStatIndex >= 0) { e.preventDefault(); cell.stat = shortcutStatIndex; needsRender = true; } 
-        else if (key === 'n') { e.preventDefault(); const currentNote = cell.note || ""; const newNote = prompt("Indtast bemærkning:", currentNote); if (newNote !== null) { cell.note = newNote; markDirty(true); render(); return; } }
-        else { const setting = appData.settings.find(s => s.key === key); if (setting) { cell.val = (cell.val || '') + setting.disp; needsRender = true; } else if (e.key === 'Backspace') { e.preventDefault(); if(cell.val.length > 0) { cell.val = cell.val.slice(0, -1); needsRender = true; } } else if (e.key === 'Delete') { cell.val = ''; cell.stat = 0; needsRender = true; } else if (e.key === ' ') { e.preventDefault(); const numStatuses = appData.statusSettings.length; cell.stat = (cell.stat + 1) % numStatuses; needsRender = true; } }
-        if (needsRender) { markDirty(true); render(); setTimeout(() => { const rows = document.getElementById('tbody').children; if(rows[rIdx]) { const cell = rows[rIdx].children[wIdx + 7]; if(cell) cell.focus(); } }, 0); }
+        
+        if (shortcutStatIndex >= 0) { 
+            e.preventDefault(); 
+            cell.stat = shortcutStatIndex; 
+            needsRender = true; 
+        } 
+        else if (key === 'n') { 
+            // Noter: Skal man kunne lave noter når det er låst? 
+            // Hvis nej, tilføj: if (isLocked) return; her
+            e.preventDefault(); 
+            const currentNote = cell.note || ""; 
+            const newNote = prompt("Indtast bemærkning:", currentNote); 
+            if (newNote !== null) { cell.note = newNote; markDirty(true); render(); return; } 
+        }
+        else { 
+            const setting = appData.settings.find(s => s.key === key); 
+            
+            // HER ER ÆNDRINGEN: Vi tjekker && !isLocked før vi skriver bogstaver
+            if (setting && !isLocked) { 
+                cell.val = (cell.val || '') + setting.disp; 
+                needsRender = true; 
+            } 
+            // Backspace må også kun virke hvis ikke låst
+            else if (e.key === 'Backspace' && !isLocked) { 
+                e.preventDefault(); 
+                if(cell.val.length > 0) { 
+                    cell.val = cell.val.slice(0, -1); 
+                    needsRender = true; 
+                } 
+            } 
+            // Delete sletter indhold, så det bør også være låst
+            else if (e.key === 'Delete' && !isLocked) { 
+                cell.val = ''; 
+                cell.stat = 0; 
+                needsRender = true; 
+            } 
+            // Space (status skift) er tilladt selvom isLocked er true
+            else if (e.key === ' ') { 
+                e.preventDefault(); 
+                const numStatuses = appData.statusSettings.length; 
+                cell.stat = (cell.stat + 1) % numStatuses; 
+                needsRender = true; 
+            } 
+        }
+        
+        if (needsRender) { 
+            markDirty(true); 
+            render(); 
+            setTimeout(() => { 
+                const rows = document.getElementById('tbody').children; 
+                if(rows[rIdx]) { 
+                    const cell = rows[rIdx].children[wIdx + (isMobile() ? 0 : 7)]; // Justeret index hvis desktop
+                    // På mobil er strukturen anderledes, men handleInput bruges primært på desktop tastatur
+                    // Hvis du bruger den originale desktop visning, er +7 korrekt for at finde cellen
+                    if(cell) cell.focus(); 
+                } 
+            }, 0); 
+        }
     }
     function addRow() { appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', weeks: {} }); markDirty(true); render(); }
 </script>
+<div id="mobileActionMenu" class="overlay-screen" style="display:none; justify-content:flex-end; background: rgba(0,0,0,0.6);">
+    <div style="background:#202124; width:100%; border-top-left-radius:16px; border-top-right-radius:16px; padding:20px; border-top:1px solid #5f6368; box-shadow: 0 -4px 10px rgba(0,0,0,0.5);">
+        <h3 style="margin-top:0; color:#e8eaed; text-align:center;">Vælg Status</h3>
+        
+        <div id="mobileStatusOptions" style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-bottom:20px;">
+            </div>
+
+        <button onclick="closeMobileMenu()" style="width:100%; margin-top:15px; background:transparent; border:1px solid #5f6368; padding:12px; color:#e8eaed; border-radius: 8px;">Annuller</button>
+    </div>
+</div>
 </body>
 </html>
