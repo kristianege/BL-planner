@@ -314,7 +314,7 @@
         /* 1. Skjul alt 'støj' */
         .nav-tabs, 
         .col-select, .col-nr, .col-summary, .col-sum,
-        #btnLock, #btnAddRow, #btnSave,#btnCloseTop,
+        #btnLock, #btnAddRow, #btnSave,#btnCloseTop,#btnDeleteRow,
         .copy-actions, .autosave-wrapper, .legend-container, .file-info, .dirty-indicator, 
         .col-station:focus
         {
@@ -374,8 +374,7 @@
         .col-link-1, .col-link-2 { font-size: 9px; padding: 0 !important; }
         .col-link-1 input, .col-link-2 input { display:none; } /* Skjul input felter i links på mobil */
         /* Hvis du vil vise links som tekst/link i stedet for input: */
-        .col-link-1::before { content: '🔗'; } 
-        .col-link-2::before { content: '🔗'; } 
+        
 
         /* Skjul uger der ikke er den aktuelle */
         .mobile-hidden { display: none !important; }
@@ -487,7 +486,8 @@
         <span id="dirtyIndicator" class="dirty-indicator" title="Ugemte ændringer">*</span>
 
         <button id="btnAddRow" onclick="addRow()" style="margin-left: 20px;">+ Række</button>
-        
+        <button id="btnDeleteRow" class="danger" onclick="deleteSelectedRows()">Slet Valgte Række</button>
+		
         <div class="legend-container">
             <div class="legend-row" id="legendCodes"></div>
             <div class="legend-row" id="legendColors"></div>
@@ -751,9 +751,51 @@
 
     function toggleLock() { isLocked = !isLocked; updateLockButton(); render(); }
     function updateLockButton() {
-        const btn = document.getElementById('btnLock'), btnAdd = document.getElementById('btnAddRow'), tabSet = document.getElementById('tabSettings');
-        if (isLocked) { btn.innerText = "Låst (Visning)"; btn.className = "locked-btn"; btnAdd.disabled = true; btnAdd.classList.add('disabled-element'); tabSet.classList.add('disabled-element'); } 
-        else { btn.innerText = "Rediger (Aktiv)"; btn.className = "unlocked-btn"; btnAdd.disabled = false; btnAdd.classList.remove('disabled-element'); tabSet.classList.remove('disabled-element'); }
+        // Hvis du har beholdt mobil-logikken fra tidligere, lad denne blok stå:
+        if (window.innerWidth <= 768) {
+            isLocked = false; 
+            return;
+        }
+
+        const btn = document.getElementById('btnLock');
+        const btnAdd = document.getElementById('btnAddRow');
+        const btnDel = document.getElementById('btnDeleteRow'); // <-- NY: Hent slette-knappen
+        const tabSet = document.getElementById('tabSettings');
+
+        if (isLocked) { 
+            btn.innerText = "Låst (Visning)"; 
+            btn.className = "locked-btn"; 
+            
+            // Deaktiver Tilføj-knap
+            btnAdd.disabled = true; 
+            btnAdd.classList.add('disabled-element'); 
+            
+            // --- NYT: Deaktiver Slette-knap ---
+            if(btnDel) {
+                btnDel.disabled = true;
+                btnDel.classList.add('disabled-element');
+            }
+            // ----------------------------------
+
+            tabSet.classList.add('disabled-element'); 
+        } 
+        else { 
+            btn.innerText = "Rediger (Aktiv)"; 
+            btn.className = "unlocked-btn"; 
+            
+            // Aktiver Tilføj-knap
+            btnAdd.disabled = false; 
+            btnAdd.classList.remove('disabled-element'); 
+            
+            // --- NYT: Aktiver Slette-knap ---
+            if(btnDel) {
+                btnDel.disabled = false;
+                btnDel.classList.remove('disabled-element');
+            }
+            // --------------------------------
+
+            tabSet.classList.remove('disabled-element'); 
+        }
     }
     function updateSummaryColumn() { const input = document.getElementById('weekInput'); let val = parseInt(input.value); if(val < 1) val = 1; if(val > UGER) val = UGER; displayWeek = val; document.getElementById('summaryHeader').innerText = "Uge " + displayWeek; render(); }
     function getTogtColor(text) { if (!text) return '#fff'; let hash = 0; for (let i = 0; i < text.length; i++) { hash = text.charCodeAt(i) + ((hash << 5) - hash); } return TOGT_PALETTE[Math.abs(hash) % TOGT_PALETTE.length]; }
@@ -1190,6 +1232,32 @@
         }
     }
     function addRow() { appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', weeks: {} }); markDirty(true); render(); }
+	function deleteSelectedRows() {
+        // Tjek om der er valgt noget
+        if (selectedIndices.size === 0) {
+            alert("Du skal markere en eller flere rækker (firkanten til venstre) for at slette dem.");
+            return;
+        }
+
+        // Spørg om lov (sikkerhedsnet)
+        if (confirm(`Er du sikker på, at du vil slette ${selectedIndices.size} række(r)?`)) {
+            
+            // Vi laver en ny liste der KUN indeholder de rækker, som IKKE er valgt
+            appData.rows = appData.rows.filter((_, index) => !selectedIndices.has(index));
+            
+            // Nulstil valgte rækker
+            selectedIndices.clear();
+            
+            // Fjern fluebenet i toppen (hvis det var sat)
+            const headerChk = document.querySelector('.col-select input');
+            if(headerChk) headerChk.checked = false;
+
+            // Gem og opdater visningen
+            markDirty(true);
+            render();
+        }
+    }
+
 </script>
 <div id="mobileActionMenu" class="overlay-screen" style="display:none; justify-content:flex-end; background: rgba(0,0,0,0.6);">
     <div style="background:#202124; width:100%; border-top-left-radius:16px; border-top-right-radius:16px; padding:20px; border-top:1px solid #5f6368; box-shadow: 0 -4px 10px rgba(0,0,0,0.5);">
