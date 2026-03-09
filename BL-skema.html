@@ -146,6 +146,16 @@
         background: var(--bg-header); color: #e8eaed; border-color: var(--border);
         position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 12px;
     }
+	/* Fastholder faste kolonneoverskrifter øverst ved vertikalt scroll */
+    th.col-select, 
+    th.col-togt, 
+    th.col-station, 
+    th.col-nr, 
+    th.col-link-1, 
+    th.col-link-2, 
+    th.col-summary {
+        z-index: 30 !important;
+    }
     
     /* Sticky Columns - Matching background to prevent see-through */
     /* 1. Kolonne: Checkbox */
@@ -577,7 +587,47 @@
     ];
 
     let appData = { settings: JSON.parse(JSON.stringify(DEFAULT_CODES)), statusSettings: JSON.parse(JSON.stringify(DEFAULT_STATUS)), rows: [] };
-    let fileHandle = null, displayWeek = 1, selectedIndices = new Set(), isLocked = true;
+    // --- HISTORIK (UNDO / REDO) ---
+    const MAX_HISTORY = 30;
+    let undoStack = [];
+    let redoStack = [];
+
+    function saveHistory() {
+        const currentStateStr = JSON.stringify(appData);
+        // Undgå at gemme, hvis der ikke er sket ændringer
+        if (undoStack.length > 0 && undoStack[undoStack.length - 1] === currentStateStr) {
+            return; 
+        }
+        undoStack.push(currentStateStr);
+        if (undoStack.length > MAX_HISTORY) undoStack.shift();
+        
+        // Nulstil redo-stakken, når brugeren foretager en ny, manuel handling
+        redoStack = []; 
+    }
+
+    function performUndo() {
+        if (undoStack.length === 0) return;
+        const currentStateStr = JSON.stringify(appData);
+        redoStack.push(currentStateStr);
+        
+        const prevStateStr = undoStack.pop();
+        appData = JSON.parse(prevStateStr);
+        markDirty(true);
+        render();
+    }
+
+    function performRedo() {
+        if (redoStack.length === 0) return;
+        const currentStateStr = JSON.stringify(appData);
+        undoStack.push(currentStateStr);
+        
+        const nextStateStr = redoStack.pop();
+        appData = JSON.parse(nextStateStr);
+        markDirty(true);
+        render();
+    }
+	
+	let fileHandle = null, displayWeek = 1, selectedIndices = new Set(), isLocked = true;
     let hasUnsavedChanges = false;
     let lastFileModTime = 0;
 
@@ -711,7 +761,23 @@
     }
     async function performAutoSave() { const btn = document.getElementById('btnSave'); const originalText = btn.innerText; btn.innerText = "Gemmer..."; const success = await performSave(true); if(success) setTimeout(() => { btn.innerText = originalText; }, 1000); }
     document.getElementById('btnSave').onclick = async () => { await performSave(false); };
-    document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); performSave(false); } });
+    document.addEventListener('keydown', e => { 
+        // Ctrl+S (Gem)
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { 
+            e.preventDefault(); 
+            performSave(false); 
+        }
+        // Ctrl+Z (Fortryd)
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { 
+            e.preventDefault(); 
+            performUndo(); 
+        }
+        // Ctrl+Y (Gendan)
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { 
+            e.preventDefault(); 
+            performRedo(); 
+        }
+    });
     async function attemptClose() { if (hasUnsavedChanges) { if (confirm("Du har ugemte ændringer!\n\nTryk OK for at GEMME og lukke.\nTryk Annuller for at lukke UDEN at gemme.")) { const saved = await performSave(false); if (saved) window.location.reload(); } else { window.location.reload(); } } else { window.location.reload(); } }
     window.addEventListener('beforeunload', (e) => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -848,6 +914,7 @@
 		// Håndterer paste af BÅDE enkelt celler og større områder (fra Excel)
 	function handleWeekPaste(e, startRowIdx, startWeekIdx) {
 		if (isLocked) return;
+		saveHistory();
 		e.preventDefault();
 		
 		// 1. Hent data
@@ -904,10 +971,113 @@
 
 		// 6. Gem og optegn hele tabellen på ny, hvis der skete ændringer
 		if (changesMade) {
-			markDirty(true);
-			render(); 
-		}
-	}
+            markDirty(true);
+            render(); 
+            setTimeout(() => { 
+                const rows = document.getElementById('tbody').children; 
+                if(rows[startRowIdx]) { 
+                    const cell = rows[startRowIdx].children[startWeekIdx + (isMobile() ? 0 : 7)];
+                    if(cell) cell.focus(); 
+                } 
+            }, 0);
+        }
+    }
+	
+	// --- MULTI-PASTE TIL STAMDATA (Togt, Station, Nr, VanDa, WMS) ---
+    const META_COLS = ['togt', 'station', 'nr', 'vandaLink', 'wmsLink'];
+
+
+    function handleMetaPaste(e, rIdx, startColKey) {
+        if (isLocked) return;
+		saveHistory();
+        e.preventDefault();
+        
+        const startColIdx = META_COLS.indexOf(startColKey);
+        if (startColIdx === -1) return;
+
+        let pasteRows = [];
+        
+        // 1. FORSØG: Læs som HTML-tabel (Giver det absolut bedste resultat fra Excel)
+        const htmlData = (e.clipboardData || window.clipboardData).getData('text/html');
+        if (htmlData && htmlData.includes('<table')) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlData;
+            const rows = tempDiv.querySelectorAll('tr');
+            rows.forEach(tr => {
+                const rowData = [];
+                // Hent teksten fra hver celle i Excels tabel
+                tr.querySelectorAll('td, th').forEach(td => rowData.push(td.innerText.trim()));
+                if (rowData.length > 0) pasteRows.push(rowData);
+            });
+        } 
+        
+        // 2. BACKUP: Læs som almindelig tekst (Hvis HTML fejler, f.eks. ved kopiering fra Notesblok)
+        if (pasteRows.length === 0) {
+            const textData = (e.clipboardData || window.clipboardData).getData('text/plain') || (e.clipboardData || window.clipboardData).getData('text');
+            if (!textData) return;
+            
+            const rawRows = textData.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
+            rawRows.forEach(rowStr => {
+                pasteRows.push(rowStr.split('\t'));
+            });
+        }
+
+        if (pasteRows.length === 0) return;
+
+        let changesMade = false;
+
+        // Nu fordeler vi dataen i systemets celler
+        pasteRows.forEach((cols, rOffset) => {
+            const targetRowIdx = rIdx + rOffset;
+            
+            // Stop hvis vi løber tør for rækker i arket
+            if (targetRowIdx >= appData.rows.length) return; 
+
+            cols.forEach((colVal, cOffset) => {
+                const targetColIdx = startColIdx + cOffset;
+                
+                // Stop hvis data flyder ud over systemets kolonner
+                if (targetColIdx >= META_COLS.length) return;
+                
+                const targetKey = META_COLS[targetColIdx];
+                let text = colVal;
+
+                // Formateringsregler for specifikke kolonner
+                if (targetKey === 'nr') {
+                    text = text.replace(/\D/g, '').substring(0, 8);
+                } else if (targetKey === 'station') {
+                    text = text.replace(/(\r\n|\n|\r)/gm, " ");
+                }
+
+                // Gem værdien i datamodellen
+                appData.rows[targetRowIdx][targetKey] = text;
+                changesMade = true;
+            });
+        });
+
+        // Genindlæs tabellen for at vise ændringerne visuelt
+        if (changesMade) {
+            markDirty(true);
+            render();
+            setTimeout(() => {
+                const rows = document.getElementById('tbody').children;
+                if(rows[rIdx]) {
+                    const cellIndex = startColIdx + 1; // +1 pga. checkbox-kolonnen
+                    const cell = rows[rIdx].children[cellIndex];
+                    if(cell) {
+                        const inputInside = cell.querySelector('input');
+                        if (inputInside && !inputInside.disabled) {
+                            inputInside.focus();
+                        } else {
+                            cell.focus();
+                        }
+                    }
+                }
+            }, 0);
+        }
+    }
+	
+	
 	
 	// --- MOBIL FUNKTIONALITET ---
     let currentMobileTarget = null; // Gemmer hvilken celle vi redigerer
@@ -1034,12 +1204,12 @@
 
             const tdVanda = document.createElement('td'); tdVanda.className = 'col-link-1';
             if (isLocked) { if(row.vandaLink) tdVanda.innerHTML = `<a href="${row.vandaLink}" target="_blank" class="cell-link" onclick="event.stopPropagation()">VanDa</a>`; } 
-            else { const inp = document.createElement('input'); inp.type = "text"; inp.value = row.vandaLink || ""; inp.placeholder = "URL..."; inp.style.width = "90%"; inp.oninput = (e) => { appData.rows[rIdx].vandaLink = e.target.value; markDirty(true); }; inp.onclick = (e) => e.stopPropagation(); tdVanda.appendChild(inp); }
+            else { const inp = document.createElement('input'); inp.type = "text"; inp.value = row.vandaLink || ""; inp.placeholder = "URL..."; inp.style.width = "90%"; inp.onfocus = () => { saveHistory(); }; inp.oninput = (e) => { appData.rows[rIdx].vandaLink = e.target.value; markDirty(true); }; inp.onclick = (e) => e.stopPropagation(); inp.addEventListener('paste', (e) => handleMetaPaste(e, rIdx, 'vandaLink')); tdVanda.appendChild(inp); }
             tr.appendChild(tdVanda);
 
             const tdWms = document.createElement('td'); tdWms.className = 'col-link-2';
             if (isLocked) { if(row.wmsLink) tdWms.innerHTML = `<a href="${row.wmsLink}" target="_blank" class="cell-link" onclick="event.stopPropagation()">WMS</a>`; } 
-            else { const inp = document.createElement('input'); inp.type = "text"; inp.value = row.wmsLink || ""; inp.placeholder = "URL..."; inp.style.width = "90%"; inp.oninput = (e) => { appData.rows[rIdx].wmsLink = e.target.value; markDirty(true); }; inp.onclick = (e) => e.stopPropagation(); tdWms.appendChild(inp); }
+            else { const inp = document.createElement('input'); inp.type = "text"; inp.value = row.wmsLink || ""; inp.placeholder = "URL..."; inp.style.width = "90%"; inp.onfocus = () => { saveHistory(); }; inp.oninput = (e) => { appData.rows[rIdx].wmsLink = e.target.value; markDirty(true); }; inp.onclick = (e) => e.stopPropagation(); inp.addEventListener('paste', (e) => handleMetaPaste(e, rIdx, 'wmsLink')); tdWms.appendChild(inp); }
             tr.appendChild(tdWms);
 
             const summaryTd = document.createElement('td'); summaryTd.className = 'col-summary';
@@ -1116,6 +1286,7 @@
         td.className = classes || ''; 
         if(isLocked) td.className += ' locked-cell'; 
         td.innerText = val || ''; 
+		td.onfocus = () => { saveHistory(); };
         
         // Gem data når man skriver
         td.oninput = (e) => { 
@@ -1137,32 +1308,12 @@
             markDirty(true); 
         }; 
 
-        // NYT: Håndter Paste (Fjern formatering)
-        td.addEventListener('paste', (e) => {
-            e.preventDefault(); // Stop standard paste (som tager farver/html med)
-            
-            // Hent teksten helt rent
-            let text = (e.clipboardData || window.clipboardData).getData('text');
-
-            if (key === 'nr') {
-                // Kun tal, max 8 cifre
-                text = text.replace(/\D/g, '').substring(0, 8);
-            } else if (key === 'station') {
-                // Ingen linjeskift i station
-                text = text.replace(/(\r\n|\n|\r)/gm, " ");
-            }
-
-            // Indsæt den rensede tekst
-            document.execCommand('insertText', false, text);
-            // Opdater data modellen med det samme
-            appData.rows[rIdx][key] = td.innerText;
-            markDirty(true);
-        });
+        td.addEventListener('paste', (e) => handleMetaPaste(e, rIdx, key));
 
         return td; 
     }
-    function handleCellDblClick(rIdx, wIdx) { const dblStatIndex = appData.statusSettings.findIndex(s => s.shortcut === 'dblclick'); if (dblStatIndex >= 0) { if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 }; appData.rows[rIdx].weeks[wIdx].stat = dblStatIndex; markDirty(true); render(); } }
-    function handleInput(e, rIdx, wIdx) {
+    function handleCellDblClick(rIdx, wIdx) { const dblStatIndex = appData.statusSettings.findIndex(s => s.shortcut === 'dblclick'); if (dblStatIndex >= 0) {saveHistory(); if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 }; appData.rows[rIdx].weeks[wIdx].stat = dblStatIndex; markDirty(true); render(); } }
+	function handleInput(e, rIdx, wIdx) {
         if (!appData.rows[rIdx].weeks) appData.rows[rIdx].weeks = {}; 
         if (!appData.rows[rIdx].weeks[wIdx]) appData.rows[rIdx].weeks[wIdx] = { val: '', stat: 0 };
         
@@ -1170,51 +1321,75 @@
         let needsRender = false; 
         const key = e.key.toLowerCase(); 
         
-        // Tjek for genveje til status (Tilladt selvom det er låst)
-        const shortcutStatIndex = appData.statusSettings.findIndex(s => s.shortcut && s.shortcut.toLowerCase() === key);
-        
-        if (shortcutStatIndex >= 0) { 
-            e.preventDefault(); 
-            cell.stat = shortcutStatIndex; 
-            needsRender = true; 
-        } 
-        else if (key === 'n') { 
-            // Noter: Skal man kunne lave noter når det er låst? 
-            // Hvis nej, tilføj: if (isLocked) return; her
-            e.preventDefault(); 
-            const currentNote = cell.note || ""; 
-            const newNote = prompt("Indtast bemærkning:", currentNote); 
-            if (newNote !== null) { cell.note = newNote; markDirty(true); render(); return; } 
+        // Håndter Ctrl-genveje
+        if (e.ctrlKey || e.metaKey) {
+            if (key === 'c') {
+                e.preventDefault();
+                navigator.clipboard.writeText(cell.val || '');
+                return; 
+            }
+            if (key === 'x' && !isLocked) {
+                e.preventDefault();
+                saveHistory(); 
+                navigator.clipboard.writeText(cell.val || '');
+                cell.val = '';
+                cell.stat = 0;
+                needsRender = true;
+            } else {
+                return; 
+            }
         }
-        else { 
-            const setting = appData.settings.find(s => s.key === key); 
+        else {
+            const shortcutStatIndex = appData.statusSettings.findIndex(s => s.shortcut && s.shortcut.toLowerCase() === key);
             
-            // HER ER ÆNDRINGEN: Vi tjekker && !isLocked før vi skriver bogstaver
-            if (setting && !isLocked) { 
-                cell.val = (cell.val || '') + setting.disp; 
+            if (shortcutStatIndex >= 0) { 
+                saveHistory();
+                e.preventDefault(); 
+                cell.stat = shortcutStatIndex; 
                 needsRender = true; 
             } 
-            // Backspace må også kun virke hvis ikke låst
-            else if (e.key === 'Backspace' && !isLocked) { 
+            else if (key === 'n') { 
                 e.preventDefault(); 
-                if(cell.val.length > 0) { 
-                    cell.val = cell.val.slice(0, -1); 
+                const currentNote = cell.note || ""; 
+                const newNote = prompt("Indtast bemærkning:", currentNote); 
+                if (newNote !== null) { 
+                    saveHistory();
+                    cell.note = newNote; 
+                    markDirty(true); 
+                    render(); 
+                    return; 
+                } 
+            }
+            else { 
+                const setting = appData.settings.find(s => s.key === key); 
+                
+                if (setting && !isLocked) { 
+                    saveHistory();
+                    cell.val = (cell.val || '') + setting.disp; 
                     needsRender = true; 
                 } 
-            } 
-            // Delete sletter indhold, så det bør også være låst
-            else if (e.key === 'Delete' && !isLocked) { 
-                cell.val = ''; 
-                cell.stat = 0; 
-                needsRender = true; 
-            } 
-            // Space (status skift) er tilladt selvom isLocked er true
-            else if (e.key === ' ') { 
-                e.preventDefault(); 
-                const numStatuses = appData.statusSettings.length; 
-                cell.stat = (cell.stat + 1) % numStatuses; 
-                needsRender = true; 
-            } 
+                else if (e.key === 'Backspace' && !isLocked) { 
+                    e.preventDefault(); 
+                    if(cell.val.length > 0) { 
+                        saveHistory();
+                        cell.val = cell.val.slice(0, -1); 
+                        needsRender = true; 
+                    } 
+                } 
+                else if (e.key === 'Delete' && !isLocked) { 
+                    saveHistory();
+                    cell.val = ''; 
+                    cell.stat = 0; 
+                    needsRender = true; 
+                } 
+                else if (e.key === ' ') { 
+                    saveHistory();
+                    e.preventDefault(); 
+                    const numStatuses = appData.statusSettings.length; 
+                    cell.stat = (cell.stat + 1) % numStatuses; 
+                    needsRender = true; 
+                } 
+            }
         }
         
         if (needsRender) { 
@@ -1223,15 +1398,13 @@
             setTimeout(() => { 
                 const rows = document.getElementById('tbody').children; 
                 if(rows[rIdx]) { 
-                    const cell = rows[rIdx].children[wIdx + (isMobile() ? 0 : 7)]; // Justeret index hvis desktop
-                    // På mobil er strukturen anderledes, men handleInput bruges primært på desktop tastatur
-                    // Hvis du bruger den originale desktop visning, er +7 korrekt for at finde cellen
-                    if(cell) cell.focus(); 
+                    const cellEl = rows[rIdx].children[wIdx + (isMobile() ? 0 : 7)]; 
+                    if(cellEl) cellEl.focus(); 
                 } 
             }, 0); 
         }
     }
-    function addRow() { appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', weeks: {} }); markDirty(true); render(); }
+    function addRow() {saveHistory(); appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', weeks: {} }); markDirty(true); render(); }
 	function deleteSelectedRows() {
         // Tjek om der er valgt noget
         if (selectedIndices.size === 0) {
@@ -1241,7 +1414,7 @@
 
         // Spørg om lov (sikkerhedsnet)
         if (confirm(`Er du sikker på, at du vil slette ${selectedIndices.size} række(r)?`)) {
-            
+            saveHistory();
             // Vi laver en ny liste der KUN indeholder de rækker, som IKKE er valgt
             appData.rows = appData.rows.filter((_, index) => !selectedIndices.has(index));
             
@@ -1257,6 +1430,63 @@
             render();
         }
     }
+
+// --- PILETAST NAVIGATION ---
+    document.addEventListener('keydown', function(e) {
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+
+        const activeEl = document.activeElement;
+        if (!activeEl) return;
+
+        const td = activeEl.closest('td');
+        if (!td) return;
+
+        const tr = td.parentElement;
+        const tbody = tr.parentElement;
+
+        if (tbody.id !== 'tbody') return;
+
+        const currentRowIdx = Array.from(tbody.children).indexOf(tr);
+        const currentColIdx = Array.from(tr.children).indexOf(td);
+
+        let targetRowIdx = currentRowIdx;
+        let targetColIdx = currentColIdx;
+
+        const isTextInput = activeEl.tagName === 'INPUT' || activeEl.isContentEditable;
+        
+        if (e.key === 'ArrowUp') {
+            targetRowIdx--;
+            e.preventDefault(); 
+        }
+        if (e.key === 'ArrowDown') {
+            targetRowIdx++;
+            e.preventDefault(); 
+        }
+        if (e.key === 'ArrowLeft') {
+            if (isTextInput) return; 
+            targetColIdx--;
+            e.preventDefault();
+        }
+        if (e.key === 'ArrowRight') {
+            if (isTextInput) return; 
+            targetColIdx++;
+            e.preventDefault();
+        }
+
+        if (targetRowIdx < 0 || targetRowIdx >= tbody.children.length) return;
+        const targetTr = tbody.children[targetRowIdx];
+        
+        if (targetColIdx < 0 || targetColIdx >= targetTr.children.length) return;
+
+        const targetTd = targetTr.children[targetColIdx];
+        
+        const inputInside = targetTd.querySelector('input');
+        if (inputInside && !inputInside.disabled) {
+            inputInside.focus();
+        } else {
+            targetTd.focus();
+        }
+    });
 
 </script>
 <div id="mobileActionMenu" class="overlay-screen" style="display:none; justify-content:flex-end; background: rgba(0,0,0,0.6);">
