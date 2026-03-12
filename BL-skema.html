@@ -422,6 +422,40 @@
         /* Generel højde */
         th, td { height: 45px; } /* Lidt højere celler for nemmere tryk */
     }
+	
+	/* --- FORDELING (DRAG & DROP) --- */
+		.drag-item {
+			background-color: #3c4043;
+			border: 1px solid #8ab4f8;
+			color: #e8eaed;
+			padding: 4px 8px;
+			margin: 4px;
+			border-radius: 4px;
+			cursor: grab;
+			display: inline-block;
+			font-size: 11px;
+			user-select: none;
+		}
+		.drag-item:active {
+			cursor: grabbing;
+		}
+		/* Særlig farve til togter der indeholder Q */
+		.drag-item.has-q {
+			background-color: #1e8e3e; 
+			border-color: #81c995;
+		}
+		.drop-zone {
+			min-height: 40px;
+			padding: 4px;
+			vertical-align: top;
+		}
+		.drop-zone.drag-over {
+			background-color: rgba(138, 180, 248, 0.1);
+			border: 1px dashed #8ab4f8;
+		}
+		th.col-emp {
+			min-width: 150px;
+		}
 		
 </style>
 </head>
@@ -468,7 +502,8 @@
 
 <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('plan')">Planlægning</button>
-    <button id="tabSettings" class="nav-tab" onclick="switchTab('settings')">Indstillinger</button>
+    <button class="nav-tab" onclick="switchTab('dist')">Fordeling</button>
+	<button id="tabSettings" class="nav-tab" onclick="switchTab('settings')">Indstillinger</button>
 </div>
 
 <div id="view-plan" class="view-section active">
@@ -519,6 +554,18 @@
                 </tr>
             </thead>
             <tbody id="tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="view-dist" class="view-section">
+    <div class="toolbar">
+        <button class="primary" onclick="addEmployee()">+ Tilføj Medarbejder</button>
+    </div>
+    <div class="sheet-container">
+        <table id="distGrid">
+            <thead id="distHead"></thead>
+            <tbody id="distBody"></tbody>
         </table>
     </div>
 </div>
@@ -704,7 +751,7 @@
     });
 
     document.getElementById('btnStartOpen').onclick = async () => { try { [fileHandle] = await window.showOpenFilePicker({ types: [{ description: 'JSON Plan', accept: { 'application/json': ['.json'] } }] }); await saveHandle(fileHandle); await loadFromFile(); document.getElementById('startScreen').style.display = 'none'; } catch (e) {} };
-    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); };
+    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; appData.employees = ['Medarbejder 1', 'Medarbejder 2']; appData.assignments = {}; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); };
 
     async function verifyPermission(handle, withWrite) { const opts = withWrite ? { mode: 'readwrite' } : {}; if ((await handle.queryPermission(opts)) === 'granted') return true; if ((await handle.requestPermission(opts)) === 'granted') return true; return false; }
     
@@ -725,6 +772,9 @@
             }
         } catch (e) { appData.rows = []; }
         if (appData.rows.length === 0) addRow();
+		// Sørg for at arrays til medarbejdere og fordeling findes
+        if (!appData.employees) appData.employees = ['Medarbejder 1', 'Medarbejder 2'];
+        if (!appData.assignments) appData.assignments = {}; // Format: "uge_togt": "medarbejder"
         markDirty(false); updateLegend(); render();
     }
 
@@ -1487,6 +1537,174 @@
             targetTd.focus();
         }
     });
+
+// --- FORDELING LOGIK ---
+
+    function addEmployee() {
+        const name = prompt("Indtast medarbejderens navn:");
+        if (name && name.trim() !== '') {
+            saveHistory();
+            appData.employees.push(name.trim());
+            markDirty(true);
+            renderDist();
+        }
+    }
+
+    function removeEmployee(empName) {
+        if (confirm("Slet medarbejder '" + empName + "'? Dette fjerner også deres tildelte togter.")) {
+            saveHistory();
+            appData.employees = appData.employees.filter(e => e !== empName);
+            for (const key in appData.assignments) {
+                if (appData.assignments[key] === empName) {
+                    delete appData.assignments[key];
+                }
+            }
+            markDirty(true);
+            renderDist();
+        }
+    }
+
+    function renderDist() {
+        const thead = document.getElementById('distHead');
+        const tbody = document.getElementById('distBody');
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
+        const trHead = document.createElement('tr');
+        trHead.innerHTML = `
+            <th class="col-select" style="width: 60px;">Uge</th>
+            <th class="col-station" style="width: 200px;">Pulje (Ikke fordelt)</th>
+        `;
+        appData.employees.forEach(emp => {
+            const th = document.createElement('th');
+            th.className = 'col-emp';
+            th.innerHTML = `${emp} <span style="cursor:pointer; color:#d93025; float:right;" onclick="removeEmployee('${emp}')">X</span>`;
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+
+        for (let w = 1; w <= UGER; w++) {
+            // Find togter og tjek for 'Q'
+            let togtData = new Map();
+            appData.rows.forEach(row => {
+                if (row.weeks && row.weeks[w - 1] && row.weeks[w - 1].val) {
+                    const togtName = (row.togt || '').trim();
+                    if (togtName !== '') {
+                        const hasQ = row.weeks[w - 1].val.toLowerCase().includes('q');
+                        if (togtData.has(togtName)) {
+                            if (hasQ) togtData.set(togtName, true);
+                        } else {
+                            togtData.set(togtName, hasQ);
+                        }
+                    }
+                }
+            });
+
+            if (togtData.size === 0) continue;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td style="font-weight:bold;">Uge ${w}</td>`;
+
+            let pool = [];
+            let assigned = {};
+            appData.employees.forEach(emp => assigned[emp] = []);
+
+            togtData.forEach((hasQ, togtName) => {
+                const assignKey = w + '_' + togtName;
+                const assignedTo = appData.assignments[assignKey];
+                const togtObj = { name: togtName, hasQ: hasQ };
+                
+                if (assignedTo && appData.employees.includes(assignedTo)) {
+                    assigned[assignedTo].push(togtObj);
+                } else {
+                    pool.push(togtObj);
+                }
+            });
+
+            const tdPool = document.createElement('td');
+            tdPool.className = 'drop-zone';
+            tdPool.ondragover = (e) => handleDragOver(e, tdPool);
+            tdPool.ondragleave = () => tdPool.classList.remove('drag-over');
+            tdPool.ondrop = (e) => handleDrop(e, w, 'pool');
+            
+            pool.forEach(togtObj => {
+                tdPool.appendChild(createDraggableItem(w, togtObj));
+            });
+            tr.appendChild(tdPool);
+
+            appData.employees.forEach(emp => {
+                const tdEmp = document.createElement('td');
+                tdEmp.className = 'drop-zone';
+                tdEmp.ondragover = (e) => handleDragOver(e, tdEmp);
+                tdEmp.ondragleave = () => tdEmp.classList.remove('drag-over');
+                tdEmp.ondrop = (e) => handleDrop(e, w, emp);
+
+                assigned[emp].forEach(togtObj => {
+                    tdEmp.appendChild(createDraggableItem(w, togtObj));
+                });
+                tr.appendChild(tdEmp);
+            });
+
+            tbody.appendChild(tr);
+        }
+    }
+
+    function createDraggableItem(uge, togtObj) {
+        const div = document.createElement('div');
+        div.className = 'drag-item';
+        if (togtObj.hasQ) div.classList.add('has-q');
+        
+        div.draggable = true;
+        div.innerText = togtObj.name;
+        div.ondragstart = (e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ uge: uge, togt: togtObj.name }));
+        };
+        return div;
+    }
+
+    function handleDragOver(e, tdElement) {
+        e.preventDefault();
+        tdElement.classList.add('drag-over');
+    }
+
+    function handleDrop(e, targetUge, targetEmp) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            
+            if (data.uge !== targetUge) {
+                alert("Du kan kun flytte togtet inden for samme uge.");
+                return;
+            }
+
+            saveHistory();
+            const assignKey = data.uge + '_' + data.togt;
+
+            if (targetEmp === 'pool') {
+                delete appData.assignments[assignKey];
+            } else {
+                appData.assignments[assignKey] = targetEmp;
+            }
+
+            markDirty(true);
+            renderDist();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // Opdater switchTab for at aktivere fordelingsfanen korrekt
+    const originalSwitchTab = switchTab;
+    switchTab = function(tabName) {
+        originalSwitchTab(tabName);
+        const buttons = document.querySelectorAll('.nav-tab');
+        if (tabName === 'dist') {
+            buttons[1].classList.add('active'); 
+            renderDist();
+        }
+    }
 
 </script>
 <div id="mobileActionMenu" class="overlay-screen" style="display:none; justify-content:flex-end; background: rgba(0,0,0,0.6);">
