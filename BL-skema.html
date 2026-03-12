@@ -457,6 +457,13 @@
 			min-width: 150px;
 		}
 		
+	/* Fremhævning af medarbejderens tildelte togter */
+		.emp-highlight {
+			box-shadow: inset 0 0 0 2px #d93025 !important; /* Tyk indvendig rød ramme */
+			position: relative;
+			z-index: 15; /* Sørger for at rammen ligger over evt. baggrundsfarver */
+		}	
+		
 </style>
 </head>
 <body>
@@ -516,6 +523,13 @@
             <span>Uge</span>
             <input type="number" id="weekInput" min="1" max="53" value="1" onchange="updateSummaryColumn()">
         </div>
+		
+		<div class="week-selector" style="margin-left: 10px;">
+            <span>Vis:</span>
+            <select id="empFilter" onchange="filterEmployee(this.value)" style="background: transparent; color: #fff; border: none; border-bottom: 2px solid var(--border); font-size: 13px; outline: none; cursor: pointer;">
+                <option value="" style="background: var(--bg-body);">-- Medarbejder --</option>
+            </select>
+        </div>
         
         <div class="autosave-wrapper">
             <input type="checkbox" id="chkAutoSave" checked title="Gem automatisk hvert minut">
@@ -561,6 +575,7 @@
 <div id="view-dist" class="view-section">
     <div class="toolbar">
         <button class="primary" onclick="addEmployee()">+ Tilføj Medarbejder</button>
+		<span style="color: var(--text-muted); font-size: 12px; margin-left: 15px;">Højreklik på et togt for at dele det (eller omdøbe en del).</span>
     </div>
     <div class="sheet-container">
         <table id="distGrid">
@@ -732,7 +747,8 @@
         countdownInterval = setInterval(() => { secondsLeft--; document.getElementById('countdownDisplay').innerText = secondsLeft; if(secondsLeft <= 0) clearInterval(countdownInterval); }, 1000);
         countdownTimer = setTimeout(performAutoClose, INACTIVITY_FINAL_MS);
     }
-    function continueSession() { clearTimeout(countdownTimer); clearInterval(countdownInterval); document.getElementById('warningModal').style.display = 'none'; resetInactivityTimer(); }
+    function continueSession() { clearTimeout(countdownTimer); clearInterval(countdownInterval); 
+	('warningModal').style.display = 'none'; resetInactivityTimer(); }
     async function performAutoClose() { clearInterval(countdownInterval); document.getElementById('warningModal').innerHTML = '<div class="warning-box"><h2>Auto-gemmer...</h2></div>'; await performSave(true); document.body.innerHTML = `<div style="display:flex; height:100vh; align-items:center; justify-content:center; flex-direction:column; background:#202124; color:#e8eaed;"><div style="background:#303134; padding:40px; border-radius:8px; border:1px solid #5f6368; text-align:center;"><h1 style="color:#fff;">Session Afsluttet</h1><p>Du var inaktiv i 10 minutter.</p><p style="color:#1e8e3e; font-weight:bold;">Dine data er blevet gemt.</p><button onclick="window.location.reload()" style="padding:10px 20px; cursor:pointer; font-size:16px; background:#8ab4f8; border:none; color:#202124; border-radius:18px;">Log ind igen</button></div></div>`; window.close(); }
 
     const dbName = 'PlanDB_MultiUser';
@@ -751,7 +767,7 @@
     });
 
     document.getElementById('btnStartOpen').onclick = async () => { try { [fileHandle] = await window.showOpenFilePicker({ types: [{ description: 'JSON Plan', accept: { 'application/json': ['.json'] } }] }); await saveHandle(fileHandle); await loadFromFile(); document.getElementById('startScreen').style.display = 'none'; } catch (e) {} };
-    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; appData.employees = ['Medarbejder 1', 'Medarbejder 2']; appData.assignments = {}; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); };
+    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; appData.employees = ['Medarbejder 1', 'Medarbejder 2']; appData.assignments = {}; appData.splits = {}; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); updateEmployeeDropdown();};
 
     async function verifyPermission(handle, withWrite) { const opts = withWrite ? { mode: 'readwrite' } : {}; if ((await handle.queryPermission(opts)) === 'granted') return true; if ((await handle.requestPermission(opts)) === 'granted') return true; return false; }
     
@@ -775,7 +791,8 @@
 		// Sørg for at arrays til medarbejdere og fordeling findes
         if (!appData.employees) appData.employees = ['Medarbejder 1', 'Medarbejder 2'];
         if (!appData.assignments) appData.assignments = {}; // Format: "uge_togt": "medarbejder"
-        markDirty(false); updateLegend(); render();
+        if (!appData.splits) appData.splits = {}; //opdeling af togter
+		markDirty(false); updateLegend(); updateEmployeeDropdown(); render();
     }
 
     function markDirty(isDirty) { 
@@ -1304,6 +1321,16 @@
 					td.style.borderRight = "2px solid #777"; 
 				}
 				
+				// --- NYT: Fremhæv hvis tildelt den valgte medarbejder ---
+                if (selectedEmployeeFilter !== "" && cellData.val && row.togt) {
+                    const togtName = row.togt.trim();
+                    const assignKey = (w + 1) + '_' + togtName; // fx "12_Togt A"
+                    if (appData.assignments && appData.assignments[assignKey] === selectedEmployeeFilter) {
+                        td.classList.add('emp-highlight');
+                    }
+                }
+                // ---------------------------------------------------------
+				
 				td.tabIndex = 0; 
 				
 				// --- NYT: Brug handleCellClick i stedet for direkte focus ---
@@ -1546,6 +1573,7 @@
             saveHistory();
             appData.employees.push(name.trim());
             markDirty(true);
+			updateEmployeeDropdown();
             renderDist();
         }
     }
@@ -1560,11 +1588,12 @@
                 }
             }
             markDirty(true);
+			updateEmployeeDropdown();
             renderDist();
         }
     }
 
-    function renderDist() {
+function renderDist() {
         const thead = document.getElementById('distHead');
         const tbody = document.getElementById('distBody');
         thead.innerHTML = '';
@@ -1584,7 +1613,6 @@
         thead.appendChild(trHead);
 
         for (let w = 1; w <= UGER; w++) {
-            // Find togter og tjek for 'Q'
             let togtData = new Map();
             appData.rows.forEach(row => {
                 if (row.weeks && row.weeks[w - 1] && row.weeks[w - 1].val) {
@@ -1610,15 +1638,21 @@
             appData.employees.forEach(emp => assigned[emp] = []);
 
             togtData.forEach((hasQ, togtName) => {
-                const assignKey = w + '_' + togtName;
-                const assignedTo = appData.assignments[assignKey];
-                const togtObj = { name: togtName, hasQ: hasQ };
+                const baseKey = w + '_' + togtName;
+                // Tjekker om togtet er delt. Hvis ikke, returneres [null] for at køre løkken én gang
+                const parts = appData.splits && appData.splits[baseKey] ? appData.splits[baseKey] : [null];
                 
-                if (assignedTo && appData.employees.includes(assignedTo)) {
-                    assigned[assignedTo].push(togtObj);
-                } else {
-                    pool.push(togtObj);
-                }
+                parts.forEach(part => {
+                    const assignKey = part ? `${baseKey}:${part}` : baseKey;
+                    const assignedTo = appData.assignments[assignKey];
+                    const togtObj = { name: togtName, hasQ: hasQ, part: part };
+                    
+                    if (assignedTo && appData.employees.includes(assignedTo)) {
+                        assigned[assignedTo].push(togtObj);
+                    } else {
+                        pool.push(togtObj);
+                    }
+                });
             });
 
             const tdPool = document.createElement('td');
@@ -1649,17 +1683,92 @@
         }
     }
 
-    function createDraggableItem(uge, togtObj) {
+	function createDraggableItem(uge, togtObj) {
         const div = document.createElement('div');
         div.className = 'drag-item';
         if (togtObj.hasQ) div.classList.add('has-q');
         
+        // Viser formatet "12: Nordhavn" hvis togtet er delt
+        const displayName = togtObj.part ? `${togtObj.name}: ${togtObj.part}` : togtObj.name;
+        div.innerText = displayName;
         div.draggable = true;
-        div.innerText = togtObj.name;
+        
         div.ondragstart = (e) => {
-            e.dataTransfer.setData('text/plain', JSON.stringify({ uge: uge, togt: togtObj.name }));
+            e.dataTransfer.setData('text/plain', JSON.stringify({ uge: uge, togt: togtObj.name, part: togtObj.part }));
         };
+
+        // Lytter efter højreklik
+        div.oncontextmenu = (e) => {
+            e.preventDefault();
+            handleSplitTogt(uge, togtObj);
+        };
+
         return div;
+    }
+
+    function handleSplitTogt(uge, togtObj) {
+        const baseKey = uge + '_' + togtObj.name;
+        if (!appData.splits) appData.splits = {};
+
+        if (!togtObj.part) {
+            // Togtet er ikke delt
+            const newName = prompt(`Opdel togt ${togtObj.name} i uge ${uge}.\nIndtast navn for den første del (fx stationsnavn):`);
+            if (newName && newName.trim() !== '') {
+                saveHistory();
+                appData.splits[baseKey] = [newName.trim(), 'Rest'];
+                
+                // Flyt eksisterende tildeling fra hovedtogtet til den nye første del
+                const oldAssign = appData.assignments[baseKey];
+                if (oldAssign) {
+                    appData.assignments[`${baseKey}:${newName.trim()}`] = oldAssign;
+                    delete appData.assignments[baseKey];
+                }
+                markDirty(true);
+                renderDist();
+            }
+        } else {
+            // Togtet er allerede delt. Tillad omdøbning eller sletning.
+            const newName = prompt(`Omdøb delen '${togtObj.part}' for togt ${togtObj.name} i uge ${uge}.\nSlet teksten helt og tryk OK for at fjerne denne del.`, togtObj.part);
+            
+            if (newName !== null) {
+                saveHistory();
+                let parts = appData.splits[baseKey];
+                const partIdx = parts.indexOf(togtObj.part);
+                const oldAssignKey = `${baseKey}:${togtObj.part}`;
+                const oldAssign = appData.assignments[oldAssignKey];
+
+                if (newName.trim() === '') {
+                    // Slet delen
+                    parts.splice(partIdx, 1);
+                    delete appData.assignments[oldAssignKey];
+                } else {
+                    // Omdøb delen
+                    const trimmedName = newName.trim();
+                    parts[partIdx] = trimmedName;
+                    if (oldAssign) {
+                        appData.assignments[`${baseKey}:${trimmedName}`] = oldAssign;
+                        delete appData.assignments[oldAssignKey];
+                    }
+                }
+
+                // Hvis der kun er 1 del tilbage, slettes opdelingen og togtet samles igen
+                if (parts.length <= 1) {
+                    delete appData.splits[baseKey];
+                    // Flyt eventuel tildeling tilbage til hovedtogtet
+                    if (parts.length === 1) {
+                        const lastAssignKey = `${baseKey}:${parts[0]}`;
+                        const lastAssign = appData.assignments[lastAssignKey];
+                        if (lastAssign) {
+                            appData.assignments[baseKey] = lastAssign;
+                            delete appData.assignments[lastAssignKey];
+                        }
+                    }
+                }
+
+                markDirty(true);
+                renderDist();
+            }
+        }
     }
 
     function handleDragOver(e, tdElement) {
@@ -1667,7 +1776,7 @@
         tdElement.classList.add('drag-over');
     }
 
-    function handleDrop(e, targetUge, targetEmp) {
+function handleDrop(e, targetUge, targetEmp) {
         e.preventDefault();
         e.currentTarget.classList.remove('drag-over');
         
@@ -1680,7 +1789,8 @@
             }
 
             saveHistory();
-            const assignKey = data.uge + '_' + data.togt;
+            // Inkluderer delens navn i nøglen, hvis den findes
+            const assignKey = data.part ? `${data.uge}_${data.togt}:${data.part}` : `${data.uge}_${data.togt}`;
 
             if (targetEmp === 'pool') {
                 delete appData.assignments[assignKey];
@@ -1703,6 +1813,41 @@
         if (tabName === 'dist') {
             buttons[1].classList.add('active'); 
             renderDist();
+        }
+    }
+
+// --- MEDARBEJDER FREMHÆVNING ---
+    let selectedEmployeeFilter = "";
+
+    function filterEmployee(empName) {
+        selectedEmployeeFilter = empName;
+        render(); // Genindlæs tabellen for at vise/fjerne fremhævninger
+    }
+
+    function updateEmployeeDropdown() {
+        const sel = document.getElementById('empFilter');
+        if (!sel) return;
+        
+        const currentVal = sel.value;
+        sel.innerHTML = '<option value="" style="background: var(--bg-body);">-- Medarbejder --</option>';
+        
+        if (appData && appData.employees) {
+            appData.employees.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp;
+                opt.innerText = emp;
+                opt.style.background = "var(--bg-body)";
+                sel.appendChild(opt);
+            });
+        }
+        
+        // Fasthold valget, hvis medarbejderen stadig findes
+        if (appData.employees && appData.employees.includes(currentVal)) {
+            sel.value = currentVal;
+            selectedEmployeeFilter = currentVal;
+        } else {
+            sel.value = "";
+            selectedEmployeeFilter = "";
         }
     }
 
