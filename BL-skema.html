@@ -471,9 +471,27 @@
 	/* Fremhævning af medarbejderens tildelte togter */
 		.emp-highlight {
 			box-shadow: inset 0 0 0 2px #d93025 !important; /* Tyk indvendig rød ramme */
+		}
+    
+    /* Gør almindelige uge-celler relative, men undgå at ødelægge den fastlåste oversigtskolonne */
+		td:not(.col-summary).emp-highlight {
 			position: relative;
-			z-index: 15; /* Sørger for at rammen ligger over evt. baggrundsfarver */
+			z-index: 15;
 		}	
+		
+	/* Fraværsnoter i fordelingsfanen */
+    .emp-unavailable {
+        background-color: rgba(217, 48, 37, 0.1) !important;
+    }
+    .emp-note-label {
+        display: block;
+        font-size: 11px;
+        color: #fbbc04;
+        font-style: italic;
+        text-align: center;
+        margin-bottom: 4px;
+        pointer-events: none;
+    }
 		
 </style>
 </head>
@@ -784,7 +802,7 @@
     });
 
     document.getElementById('btnStartOpen').onclick = async () => { try { [fileHandle] = await window.showOpenFilePicker({ types: [{ description: 'JSON Plan', accept: { 'application/json': ['.json'] } }] }); await saveHandle(fileHandle); await loadFromFile(); document.getElementById('startScreen').style.display = 'none'; } catch (e) {} };
-    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; appData.employees = ['Medarbejder 1', 'Medarbejder 2']; appData.assignments = {}; appData.splits = {}; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); updateEmployeeDropdown();};
+    document.getElementById('btnStartNew').onclick = async () => { appData.settings = JSON.parse(JSON.stringify(DEFAULT_CODES)); appData.statusSettings = JSON.parse(JSON.stringify(DEFAULT_STATUS)); appData.rows = []; appData.employees = ['Medarbejder 1', 'Medarbejder 2']; appData.assignments = {}; appData.splits = {}; appData.empNotes = {}; addRow(); updateLegend(); document.getElementById('startScreen').style.display = 'none'; document.getElementById('currentFileName').innerText = "Ny (Ikke gemt)"; markDirty(false); updateEmployeeDropdown();};
 
     async function verifyPermission(handle, withWrite) { const opts = withWrite ? { mode: 'readwrite' } : {}; if ((await handle.queryPermission(opts)) === 'granted') return true; if ((await handle.requestPermission(opts)) === 'granted') return true; return false; }
     
@@ -809,6 +827,7 @@
         if (!appData.employees) appData.employees = ['Medarbejder 1', 'Medarbejder 2'];
         if (!appData.assignments) appData.assignments = {}; // Format: "uge_togt": "medarbejder"
         if (!appData.splits) appData.splits = {}; //opdeling af togter
+		if (!appData.empNotes) appData.empNotes = {}; // NYT: Objekt til fraværsnoter
 		markDirty(false); updateLegend(); updateEmployeeDropdown(); render();
     }
 
@@ -972,8 +991,14 @@
                 const wmsLink = row.wmsLink ? `<a href="${row.wmsLink}">WMS</a>` : "";
                 htmlContent += `<tr><td>${togt}</td><td>${station}</td><td>${nr}</td><td>${vandaLink}</td><td>${wmsLink}</td><td>${kode}</td></tr>`;
             });
-            htmlContent += `</tbody></table>`;
-            const blobHtml = new Blob([htmlContent], { type: "text/html" }); const blobText = new Blob([`Kopieret ${sortedIndices.length} rækker`], { type: "text/plain" });
+            
+			htmlContent += `</tbody></table>`;
+            
+            // Tilføj forklaring af koder under tabellen
+            const codeParts = appData.settings.map(c => `${c.disp}=${c.desc}`);
+            htmlContent += `<br><span style="font-family: sans-serif; font-size: 12px;">Koder: ${codeParts.join(', ')}</span>`;
+            
+			const blobHtml = new Blob([htmlContent], { type: "text/html" }); const blobText = new Blob([`Kopieret ${sortedIndices.length} rækker`], { type: "text/plain" });
             const data = [new ClipboardItem({ "text/html": blobHtml, "text/plain": blobText })];
             try { await navigator.clipboard.write(data); alert(`Kopieret (Excel)!`); } catch (err) { alert("Fejl: " + err); }
         }
@@ -1307,7 +1332,7 @@
             const weekData = (row.weeks && row.weeks[displayWeek-1]) ? row.weeks[displayWeek-1] : {val:'', stat:0};
             summaryTd.innerText = weekData.val;
             
-            // DARK MODE STATUS COLOR LOGIC
+			// DARK MODE STATUS COLOR LOGIC
             if(weekData.stat === 0) {
                 summaryTd.style.backgroundColor = ""; // Default CSS dark
                 summaryTd.style.color = ""; 
@@ -1317,6 +1342,37 @@
                     summaryTd.style.color = "#000"; // Force black text on colored cells
                 }
             }
+            
+            // --- NYT: Fremhæv summary-kolonnen hvis tildelt den valgte medarbejder ---
+            if (selectedEmployeeFilter !== "" && weekData.val && row.togt) {
+                const togtName = row.togt.trim();
+                const stationName = (row.station || "").trim();
+                const baseKey = displayWeek + '_' + togtName;
+                
+                let isAssignedToEmp = false;
+
+                if (appData.splits && appData.splits[baseKey]) {
+                    const parts = appData.splits[baseKey];
+                    const partContainingStation = parts.find(p => p.split('|').map(s => s.trim()).includes(stationName));
+                    
+                    if (partContainingStation) {
+                        const assignKey = baseKey + ':' + partContainingStation;
+                        if (appData.assignments[assignKey] === selectedEmployeeFilter) {
+                            isAssignedToEmp = true;
+                        }
+                    }
+                } else {
+                    if (appData.assignments[baseKey] === selectedEmployeeFilter) {
+                        isAssignedToEmp = true;
+                    }
+                }
+
+                if (isAssignedToEmp) {
+                    summaryTd.classList.add('emp-highlight');
+                }
+            }
+            // --------------------------------------------------------------------------
+
             tr.appendChild(summaryTd);
 
             for (let w = 0; w < UGER; w++) {
@@ -1647,10 +1703,10 @@ function renderDist() {
         thead.innerHTML = '';
         tbody.innerHTML = '';
 
-        const trHead = document.createElement('tr');
+		const trHead = document.createElement('tr');
         trHead.innerHTML = `
-            <th class="col-select" style="width: 60px;">Uge</th>
-            <th class="col-station" style="width: 200px;">Pulje (Ikke fordelt)</th>
+            <th style="min-width: 60px;">Uge</th>
+            <th style="min-width: 200px;">Pulje (Ikke fordelt)</th>
         `;
         appData.employees.forEach(emp => {
             const th = document.createElement('th');
@@ -1736,12 +1792,64 @@ function renderDist() {
             });
             tr.appendChild(tdPool);
 
-            appData.employees.forEach(emp => {
+			appData.employees.forEach(emp => {
                 const tdEmp = document.createElement('td');
                 tdEmp.className = 'drop-zone';
-                tdEmp.ondragover = (e) => handleDragOver(e, tdEmp);
+                
+                if (!appData.empNotes) appData.empNotes = {};
+                if (!appData.empNotes[emp]) appData.empNotes[emp] = {};
+                
+                const isUnavailable = appData.empNotes[emp][w] ? true : false;
+                
+                // Visuel markering af fravær
+                if (isUnavailable) {
+                    tdEmp.classList.add('emp-unavailable');
+                    const noteDiv = document.createElement('div');
+                    noteDiv.className = 'emp-note-label';
+                    noteDiv.innerText = appData.empNotes[emp][w];
+                    tdEmp.appendChild(noteDiv);
+                }
+
+                // Dobbeltklik for at tilføje/fjerne fravær
+                tdEmp.ondblclick = (e) => {
+                    // Ignorer dobbeltklik på selve togterne (drag-items)
+                    if (e.target.closest('.drag-item')) return;
+                    
+                    const currentNote = appData.empNotes[emp][w] || "";
+                    const newNote = prompt(`Angiv fravær/note for ${emp} i uge ${w} (fx 'Ferie').\nSlet teksten for at gøre medarbejderen tilgængelig igen:`, currentNote);
+                    
+                    if (newNote !== null) {
+                        saveHistory();
+                        if (newNote.trim() === '') {
+                            delete appData.empNotes[emp][w];
+                        } else {
+                            appData.empNotes[emp][w] = newNote.trim();
+                            
+                            // Flyt eksisterende togter tilbage til puljen, hvis medarbejderen markeres utilgængelig
+                            if (assigned[emp] && assigned[emp].length > 0) {
+                                if (confirm(`${emp} har allerede tildelte togter i uge ${w}. Vil du flytte dem tilbage til puljen?`)) {
+                                    assigned[emp].forEach(tObj => {
+                                        const assignKey = tObj.part ? `${w}_${tObj.name}:${tObj.part}` : `${w}_${tObj.name}`;
+                                        delete appData.assignments[assignKey];
+                                    });
+                                }
+                            }
+                        }
+                        markDirty(true);
+                        renderDist();
+                    }
+                };
+
+                // Træk og slip logik
+                tdEmp.ondragover = (e) => {
+                    if (isUnavailable) return; // Blokerer drop-zonen
+                    handleDragOver(e, tdEmp);
+                };
                 tdEmp.ondragleave = () => tdEmp.classList.remove('drag-over');
-                tdEmp.ondrop = (e) => handleDrop(e, w, emp);
+                tdEmp.ondrop = (e) => {
+                    if (isUnavailable) return;
+                    handleDrop(e, w, emp);
+                };
 
                 assigned[emp].forEach(togtObj => {
                     tdEmp.appendChild(createDraggableItem(w, togtObj));
@@ -1991,6 +2099,16 @@ function handleDrop(e, targetUge, targetEmp) {
             selectedEmployeeFilter = "";
         }
     }
+	
+	// Sørg for at opdatere låse-knappen og skemaet, hvis vinduet ændrer størrelse (fx maksimeres)
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            updateLockButton();
+            render();
+        }, 250); // Venter et kvart sekund efter du har sluppet musen for at spare ressourcer
+    });
 
 </script>
 <div id="mobileActionMenu" class="overlay-screen" style="display:none; justify-content:flex-end; background: rgba(0,0,0,0.6);">
