@@ -747,8 +747,14 @@
         countdownInterval = setInterval(() => { secondsLeft--; document.getElementById('countdownDisplay').innerText = secondsLeft; if(secondsLeft <= 0) clearInterval(countdownInterval); }, 1000);
         countdownTimer = setTimeout(performAutoClose, INACTIVITY_FINAL_MS);
     }
-    function continueSession() { clearTimeout(countdownTimer); clearInterval(countdownInterval); 
-	('warningModal').style.display = 'none'; resetInactivityTimer(); }
+
+	function continueSession() { 
+			clearTimeout(countdownTimer); 
+			clearInterval(countdownInterval); 
+			document.getElementById('warningModal').style.display = 'none'; 
+			resetInactivityTimer(); 
+		}
+
     async function performAutoClose() { clearInterval(countdownInterval); document.getElementById('warningModal').innerHTML = '<div class="warning-box"><h2>Auto-gemmer...</h2></div>'; await performSave(true); document.body.innerHTML = `<div style="display:flex; height:100vh; align-items:center; justify-content:center; flex-direction:column; background:#202124; color:#e8eaed;"><div style="background:#303134; padding:40px; border-radius:8px; border:1px solid #5f6368; text-align:center;"><h1 style="color:#fff;">Session Afsluttet</h1><p>Du var inaktiv i 10 minutter.</p><p style="color:#1e8e3e; font-weight:bold;">Dine data er blevet gemt.</p><button onclick="window.location.reload()" style="padding:10px 20px; cursor:pointer; font-size:16px; background:#8ab4f8; border:none; color:#202124; border-radius:18px;">Log ind igen</button></div></div>`; window.close(); }
 
     const dbName = 'PlanDB_MultiUser';
@@ -818,7 +824,7 @@
         if (!fileHandle) { try { fileHandle = await window.showSaveFilePicker({ suggestedName: 'plan.json' }); await saveHandle(fileHandle); } catch (e) { return false; } }
         try {
             const fileOnDisk = await fileHandle.getFile();
-            if (fileOnDisk.lastModified > lastFileModTime + 2000) { if(!silent) alert("KONFLIKT!\n\nEn anden har ændret filen siden du åbnede den.\nGemning afbrudt."); return false; }
+            if (fileOnDisk.lastModified > lastFileModTime + 10000) { if(!silent) alert("KONFLIKT!\n\nEn anden har ændret filen siden du åbnede den.\nGemning afbrudt."); return false; }
             const writable = await fileHandle.createWritable(); await writable.write(JSON.stringify(appData)); await writable.close();
             const newFile = await fileHandle.getFile(); lastFileModTime = newFile.lastModified;
             document.getElementById('currentFileName').innerText = fileHandle.name; markDirty(false);
@@ -1336,11 +1342,11 @@
                     
                     let isAssignedToEmp = false;
 
-                    // 1. Prioriter at tjekke om togtet er delt
+				// 1. Prioriter at tjekke om togtet er delt
                     if (appData.splits && appData.splits[baseKey]) {
                         const parts = appData.splits[baseKey];
-                        // Match stationen præcist ved at splitte på komma og fjerne mellemrum
-                        const partContainingStation = parts.find(p => p.split(',').map(s => s.trim()).includes(stationName));
+                        // Match stationen præcist ved at splitte på pipe (|)
+                        const partContainingStation = parts.find(p => p.split('|').map(s => s.trim()).includes(stationName));
                         
                         if (partContainingStation) {
                             const assignKey = baseKey + ':' + partContainingStation;
@@ -1692,7 +1698,7 @@ function renderDist() {
                         partHasQ = activeRows.some(r => r.togt === togtName && r.hasQ);
                     } else {
                         // Opdelt togt: Sikr at vi fjerner mellemrum for at undgå browser-specifikke forskelle i teksttolkning
-                        const stationsInPart = part.split(',').map(s => s.trim());
+                        const stationsInPart = part.split('|').map(s => s.trim());
                         partHasQ = activeRows.some(r => r.togt === togtName && stationsInPart.includes(r.station) && r.hasQ);
                     }
 
@@ -1873,9 +1879,9 @@ function confirmSplitModal() {
             return;
         }
 
-        // Sammensæt navne adskilt af komma
-        const part1Name = selected.join(', ');
-        const part2Name = remaining.join(', ');
+		// Sammensæt navne adskilt af en lodret streg (|) da stationsnavne indeholder kommaer
+        const part1Name = selected.join(' | ');
+        const part2Name = remaining.join(' | ');
         
         saveHistory();
         const { baseKey } = currentSplitContext;
