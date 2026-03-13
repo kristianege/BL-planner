@@ -1336,21 +1336,23 @@
                     
                     let isAssignedToEmp = false;
 
-                    // 1. Tjek om hele togtet er tildelt (ikke delt)
-                    if (appData.assignments[baseKey] === selectedEmployeeFilter) {
-                        isAssignedToEmp = true;
-                    } 
-                    // 2. Tjek om togtet er delt, og find den del som stationen tilhører
-                    else if (appData.splits && appData.splits[baseKey]) {
+                    // 1. Prioriter at tjekke om togtet er delt
+                    if (appData.splits && appData.splits[baseKey]) {
                         const parts = appData.splits[baseKey];
-                        // Find den del (tekststreng med stationer adskilt af komma), der indeholder denne station
-                        const partContainingStation = parts.find(p => p.split(', ').includes(stationName));
+                        // Match stationen præcist ved at splitte på komma og fjerne mellemrum
+                        const partContainingStation = parts.find(p => p.split(',').map(s => s.trim()).includes(stationName));
                         
                         if (partContainingStation) {
                             const assignKey = baseKey + ':' + partContainingStation;
                             if (appData.assignments[assignKey] === selectedEmployeeFilter) {
                                 isAssignedToEmp = true;
                             }
+                        }
+                    } 
+                    // 2. Hvis togtet IKKE er delt, tjekkes basistildelingen
+                    else {
+                        if (appData.assignments[baseKey] === selectedEmployeeFilter) {
+                            isAssignedToEmp = true;
                         }
                     }
 
@@ -1689,8 +1691,8 @@ function renderDist() {
                         // Hele togtet: Q er sandt, hvis blot én række på togtet har Q
                         partHasQ = activeRows.some(r => r.togt === togtName && r.hasQ);
                     } else {
-                        // Opdelt togt: Q er kun sandt, hvis en af de specifikke stationer i delen har Q
-                        const stationsInPart = part.split(', ');
+                        // Opdelt togt: Sikr at vi fjerner mellemrum for at undgå browser-specifikke forskelle i teksttolkning
+                        const stationsInPart = part.split(',').map(s => s.trim());
                         partHasQ = activeRows.some(r => r.togt === togtName && stationsInPart.includes(r.station) && r.hasQ);
                     }
 
