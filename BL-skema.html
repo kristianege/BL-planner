@@ -590,7 +590,7 @@
         <div class="settings-col">
             <h3>Koder</h3>
             <table class="settings-table">
-                <thead><tr><th>Tast</th><th>Vis</th><th>Betydning</th><th></th></tr></thead>
+                <thead><tr><th>Tast</th><th>Vis</th><th>Betydning</th><th>Ekskluder i fordeling</th><th></th></tr></thead>
                 <tbody id="settingsBodyCodes"></tbody>
             </table>
             <button class="primary" onclick="addNewCode()">+ Ny kode</button>
@@ -856,11 +856,17 @@
         if(tabName === 'plan') { buttons[0].classList.add('active'); updateLegend(); render(); }
         if(tabName === 'settings') { if(isLocked) return switchTab('plan'); buttons[1].classList.add('active'); renderSettingsTables(); }
     }
-    function renderSettingsTables() {
+	
+	function renderSettingsTables() {
         const tbodyCodes = document.getElementById('settingsBodyCodes'); tbodyCodes.innerHTML = '';
         appData.settings.forEach((code, idx) => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td><input type="text" maxlength="1" value="${code.key}" onchange="updateSet(0, ${idx}, 'key', this.value)"></td><td><input type="text" maxlength="1" value="${code.disp}" onchange="updateSet(0, ${idx}, 'disp', this.value)"></td><td><input type="text" value="${code.desc}" onchange="updateSet(0, ${idx}, 'desc', this.value)"></td><td><button class="danger" onclick="removeSet(0, ${idx})">Slet</button></td>`;
+            const checked = code.ignoreDist ? 'checked' : '';
+            tr.innerHTML = `<td><input type="text" maxlength="1" value="${code.key}" onchange="updateSet(0, ${idx}, 'key', this.value)"></td>
+                            <td><input type="text" maxlength="1" value="${code.disp}" onchange="updateSet(0, ${idx}, 'disp', this.value)"></td>
+                            <td><input type="text" value="${code.desc}" onchange="updateSet(0, ${idx}, 'desc', this.value)"></td>
+                            <td style="text-align:center;"><input type="checkbox" style="width:auto; cursor:pointer;" ${checked} onchange="updateSet(0, ${idx}, 'ignoreDist', this.checked)"></td>
+                            <td><button class="danger" onclick="removeSet(0, ${idx})">Slet</button></td>`;
             tbodyCodes.appendChild(tr);
         });
         const tbodyColors = document.getElementById('settingsBodyColors'); tbodyColors.innerHTML = '';
@@ -872,6 +878,7 @@
             tbodyColors.appendChild(tr);
         });
     }
+	
     function updateSet(type, idx, field, val) { if(type === 0) { if(field === 'key') val = val.toLowerCase(); appData.settings[idx][field] = val; } else { appData.statusSettings[idx][field] = val; } markDirty(true); }
     function addNewCode() { appData.settings.push({ key: '', disp: '', desc: '' }); renderSettingsTables(); markDirty(true); }
     function addNewColor() { appData.statusSettings.push({ color: '#cccccc', desc: 'Ny status', shortcut: '' }); renderSettingsTables(); markDirty(true); }
@@ -1324,8 +1331,30 @@
 				// --- NYT: Fremhæv hvis tildelt den valgte medarbejder ---
                 if (selectedEmployeeFilter !== "" && cellData.val && row.togt) {
                     const togtName = row.togt.trim();
-                    const assignKey = (w + 1) + '_' + togtName; // fx "12_Togt A"
-                    if (appData.assignments && appData.assignments[assignKey] === selectedEmployeeFilter) {
+                    const stationName = (row.station || "").trim();
+                    const baseKey = (w + 1) + '_' + togtName;
+                    
+                    let isAssignedToEmp = false;
+
+                    // 1. Tjek om hele togtet er tildelt (ikke delt)
+                    if (appData.assignments[baseKey] === selectedEmployeeFilter) {
+                        isAssignedToEmp = true;
+                    } 
+                    // 2. Tjek om togtet er delt, og find den del som stationen tilhører
+                    else if (appData.splits && appData.splits[baseKey]) {
+                        const parts = appData.splits[baseKey];
+                        // Find den del (tekststreng med stationer adskilt af komma), der indeholder denne station
+                        const partContainingStation = parts.find(p => p.split(', ').includes(stationName));
+                        
+                        if (partContainingStation) {
+                            const assignKey = baseKey + ':' + partContainingStation;
+                            if (appData.assignments[assignKey] === selectedEmployeeFilter) {
+                                isAssignedToEmp = true;
+                            }
+                        }
+                    }
+
+                    if (isAssignedToEmp) {
                         td.classList.add('emp-highlight');
                     }
                 }
@@ -1612,23 +1641,32 @@ function renderDist() {
         });
         thead.appendChild(trHead);
 
-        for (let w = 1; w <= UGER; w++) {
-            let togtData = new Map();
+		for (let w = 1; w <= UGER; w++) {
+            let activeRows = [];
+            const ignoredChars = appData.settings.filter(s => s.ignoreDist).map(s => s.disp.toLowerCase());
+
+            // 1. Indsaml alle aktive rækker og deres specifikke Q-status
             appData.rows.forEach(row => {
                 if (row.weeks && row.weeks[w - 1] && row.weeks[w - 1].val) {
                     const togtName = (row.togt || '').trim();
                     if (togtName !== '') {
-                        const hasQ = row.weeks[w - 1].val.toLowerCase().includes('q');
-                        if (togtData.has(togtName)) {
-                            if (hasQ) togtData.set(togtName, true);
-                        } else {
-                            togtData.set(togtName, hasQ);
+                        const cellVal = row.weeks[w - 1].val.toLowerCase();
+                        let hasActiveCode = false;
+                        for (let char of cellVal) {
+                            if (!ignoredChars.includes(char)) { hasActiveCode = true; break; }
+                        }
+                        if (hasActiveCode) {
+                            activeRows.push({
+                                togt: togtName,
+                                station: (row.station || '').trim(),
+                                hasQ: cellVal.includes('q')
+                            });
                         }
                     }
                 }
             });
 
-            if (togtData.size === 0) continue;
+            if (activeRows.length === 0) continue;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `<td style="font-weight:bold;">Uge ${w}</td>`;
@@ -1637,15 +1675,28 @@ function renderDist() {
             let assigned = {};
             appData.employees.forEach(emp => assigned[emp] = []);
 
-            togtData.forEach((hasQ, togtName) => {
+            const uniqueTogter = [...new Set(activeRows.map(r => r.togt))];
+
+            // 2. Fordel togter og vurder Q-status per del
+            uniqueTogter.forEach(togtName => {
                 const baseKey = w + '_' + togtName;
-                // Tjekker om togtet er delt. Hvis ikke, returneres [null] for at køre løkken én gang
                 const parts = appData.splits && appData.splits[baseKey] ? appData.splits[baseKey] : [null];
                 
                 parts.forEach(part => {
+                    let partHasQ = false;
+                    
+                    if (part === null) {
+                        // Hele togtet: Q er sandt, hvis blot én række på togtet har Q
+                        partHasQ = activeRows.some(r => r.togt === togtName && r.hasQ);
+                    } else {
+                        // Opdelt togt: Q er kun sandt, hvis en af de specifikke stationer i delen har Q
+                        const stationsInPart = part.split(', ');
+                        partHasQ = activeRows.some(r => r.togt === togtName && stationsInPart.includes(r.station) && r.hasQ);
+                    }
+
                     const assignKey = part ? `${baseKey}:${part}` : baseKey;
                     const assignedTo = appData.assignments[assignKey];
-                    const togtObj = { name: togtName, hasQ: hasQ, part: part };
+                    const togtObj = { name: togtName, hasQ: partHasQ, part: part };
                     
                     if (assignedTo && appData.employees.includes(assignedTo)) {
                         assigned[assignedTo].push(togtObj);
@@ -1706,55 +1757,78 @@ function renderDist() {
         return div;
     }
 
+let currentSplitContext = null;
+
     function handleSplitTogt(uge, togtObj) {
         const baseKey = uge + '_' + togtObj.name;
         if (!appData.splits) appData.splits = {};
 
         if (!togtObj.part) {
-            // Togtet er ikke delt
-            const newName = prompt(`Opdel togt ${togtObj.name} i uge ${uge}.\nIndtast navn for den første del (fx stationsnavn):`);
-            if (newName && newName.trim() !== '') {
-                saveHistory();
-                appData.splits[baseKey] = [newName.trim(), 'Rest'];
-                
-                // Flyt eksisterende tildeling fra hovedtogtet til den nye første del
-                const oldAssign = appData.assignments[baseKey];
-                if (oldAssign) {
-                    appData.assignments[`${baseKey}:${newName.trim()}`] = oldAssign;
-                    delete appData.assignments[baseKey];
+            const availableStations = [];
+            const ignoredChars = appData.settings.filter(s => s.ignoreDist).map(s => s.disp.toLowerCase());
+
+            appData.rows.forEach(row => {
+                // ROBUST SAMMENLIGNING: Konverterer alt til tekst og fjerner mellemrum
+                const currentTogt = (row.togt || '').toString().trim();
+                const targetTogt = (togtObj.name || '').toString().trim();
+
+                if (currentTogt === targetTogt && row.weeks && row.weeks[uge - 1] && row.weeks[uge - 1].val) {
+                    const cellVal = row.weeks[uge - 1].val.toLowerCase();
+                    let hasActiveCode = false;
+                    for (let char of cellVal) {
+                        if (!ignoredChars.includes(char)) { hasActiveCode = true; break; }
+                    }
+                    if (hasActiveCode) {
+                        // SIKRER AT STATIONEN HENTES KORREKT
+                        const stName = (row.station || '').toString().trim();
+                        
+                        // Tjekker om cellen er tom, og om den allerede er udskilt
+                        if (stName !== '' && (!appData.splits[baseKey] || !appData.splits[baseKey].includes(stName))) {
+                            // Undgå at samme station optræder flere gange i dropdown-menuen
+                            if (!availableStations.includes(stName)) {
+                                availableStations.push(stName);
+                            }
+                        }
+                    }
                 }
-                markDirty(true);
-                renderDist();
+            });
+
+            if (availableStations.length === 0) {
+                alert("Der er ikke flere stationer at udskille på dette togt i denne uge.");
+                return;
             }
-        } else {
-            // Togtet er allerede delt. Tillad omdøbning eller sletning.
-            const newName = prompt(`Omdøb delen '${togtObj.part}' for togt ${togtObj.name} i uge ${uge}.\nSlet teksten helt og tryk OK for at fjerne denne del.`, togtObj.part);
+
+            currentSplitContext = { uge, togtName: togtObj.name, baseKey };
+            document.getElementById('splitModalText').innerText = `Vælg station der skal udskilles fra togt ${togtObj.name} i uge ${uge}:`;
             
-            if (newName !== null) {
+			// Generer afkrydsningsbokse
+            const container = document.getElementById('splitStationCheckboxes');
+            container.innerHTML = '';
+            availableStations.forEach(st => {
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.marginBottom = '5px';
+                label.style.cursor = 'pointer';
+                label.innerHTML = `<input type="checkbox" value="${st}" class="split-st-chk" style="margin-right:8px;"> ${st}`;
+                container.appendChild(label);
+            });
+
+            document.getElementById('splitModal').style.display = 'flex';
+
+ 
+        } else {
+            // Håndter sletning af en eksisterende del
+            if (confirm(`Vil du fjerne opdelingen for '${togtObj.part}' og lægge den tilbage i togtet?`)) {
                 saveHistory();
                 let parts = appData.splits[baseKey];
                 const partIdx = parts.indexOf(togtObj.part);
                 const oldAssignKey = `${baseKey}:${togtObj.part}`;
-                const oldAssign = appData.assignments[oldAssignKey];
+                
+                parts.splice(partIdx, 1);
+                delete appData.assignments[oldAssignKey];
 
-                if (newName.trim() === '') {
-                    // Slet delen
-                    parts.splice(partIdx, 1);
-                    delete appData.assignments[oldAssignKey];
-                } else {
-                    // Omdøb delen
-                    const trimmedName = newName.trim();
-                    parts[partIdx] = trimmedName;
-                    if (oldAssign) {
-                        appData.assignments[`${baseKey}:${trimmedName}`] = oldAssign;
-                        delete appData.assignments[oldAssignKey];
-                    }
-                }
-
-                // Hvis der kun er 1 del tilbage, slettes opdelingen og togtet samles igen
                 if (parts.length <= 1) {
                     delete appData.splits[baseKey];
-                    // Flyt eventuel tildeling tilbage til hovedtogtet
                     if (parts.length === 1) {
                         const lastAssignKey = `${baseKey}:${parts[0]}`;
                         const lastAssign = appData.assignments[lastAssignKey];
@@ -1764,11 +1838,59 @@ function renderDist() {
                         }
                     }
                 }
-
                 markDirty(true);
                 renderDist();
             }
         }
+    }
+
+    function closeSplitModal() {
+        document.getElementById('splitModal').style.display = 'none';
+        currentSplitContext = null;
+    }
+
+function confirmSplitModal() {
+        if (!currentSplitContext) return;
+        
+        const checkboxes = document.querySelectorAll('.split-st-chk');
+        const selected = [];
+        const remaining = [];
+        
+        // Sorter i valgte og ikke-valgte
+        checkboxes.forEach(chk => {
+            if (chk.checked) selected.push(chk.value);
+            else remaining.push(chk.value);
+        });
+
+        if (selected.length === 0) {
+            alert("Du skal vælge mindst én station.");
+            return;
+        }
+        if (remaining.length === 0) {
+            alert("Du kan ikke vælge alle stationer. Lad mindst én være tilbage for at foretage en opdeling.");
+            return;
+        }
+
+        // Sammensæt navne adskilt af komma
+        const part1Name = selected.join(', ');
+        const part2Name = remaining.join(', ');
+        
+        saveHistory();
+        const { baseKey } = currentSplitContext;
+        
+        // Gemmer de to specifikke strenge
+        appData.splits[baseKey] = [part1Name, part2Name];
+        
+        // Flytter en eventuel eksisterende medarbejdertildeling til den første del
+        const oldAssign = appData.assignments[baseKey];
+        if (oldAssign) {
+            appData.assignments[`${baseKey}:${part1Name}`] = oldAssign;
+            delete appData.assignments[baseKey];
+        }
+        
+        markDirty(true);
+        renderDist();
+        closeSplitModal();
     }
 
     function handleDragOver(e, tdElement) {
@@ -1862,5 +1984,20 @@ function handleDrop(e, targetUge, targetEmp) {
         <button onclick="closeMobileMenu()" style="width:100%; margin-top:15px; background:transparent; border:1px solid #5f6368; padding:12px; color:#e8eaed; border-radius: 8px;">Annuller</button>
     </div>
 </div>
+
+<div id="splitModal" class="overlay-screen" style="display:none; z-index: 300;">
+    <div class="overlay-box">
+        <h3 style="margin-top:0;">Opdel togt</h3>
+        <p id="splitModalText" style="font-size: 13px; color: var(--text-muted);"></p>
+        
+        <div id="splitStationCheckboxes" style="max-height: 150px; overflow-y: auto; text-align: left; margin-bottom: 20px; background: #202124; padding: 10px; border: 1px solid #5f6368; color: #fff;"></div>
+        
+        <div style="display: flex; gap: 10px; justify-content: space-between;">
+            <button onclick="closeSplitModal()" style="flex: 1; background: transparent; border: 1px solid #5f6368;">Annuller</button>
+            <button onclick="confirmSplitModal()" class="primary" style="flex: 1;">Opdel</button>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
