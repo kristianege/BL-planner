@@ -152,7 +152,8 @@
     th.col-station, 
     th.col-nr, 
     th.col-link-1, 
-    th.col-link-2, 
+    th.col-link-2,
+	th.col-kemi,	
     th.col-summary {
         z-index: 30 !important;
     }
@@ -163,7 +164,8 @@
     td.col-station, 
     td.col-nr, 
     td.col-link-1, 
-    td.col-link-2, 
+    td.col-link-2,
+	th.col-kemi,	
     td.col-summary {
         z-index: 25 !important;
     }
@@ -266,6 +268,26 @@
         border: 1px solid var(--border);
         font-size: 11px; 
     }
+	
+	/* Ny Kemi kolonne (skjult som standard) */
+    .col-kemi { 
+        position: sticky; 
+        left: 490px;
+        width: 50px; 
+        z-index: 11; 
+        background-color: var(--bg-body); 
+        border: 1px solid var(--border);
+        font-size: 11px; 
+        display: none; 
+    }
+
+    /* Vises kun i redigeringstilstand */
+    body.is-unlocked .col-kemi {
+        display: table-cell;
+    }
+    body.is-unlocked .col-summary {
+        left: 540px; 
+    }
     
     /* RETTET: Flyttet til 490px */
     .col-summary { 
@@ -334,7 +356,7 @@
         
         /* 1. Skjul alt 'støj' */
         .nav-tabs, 
-        .col-select, .col-nr, .col-summary, .col-sum,
+        .col-select, .col-nr, .col-summary, .col-sum, .col-kemi,
         #btnLock, #btnAddRow, #btnSave,#btnCloseTop,#btnDeleteRow,
         .copy-actions, .autosave-wrapper, .legend-container, .file-info, .dirty-indicator, 
         .col-station:focus
@@ -593,6 +615,7 @@
                     <th class="col-nr">Nr.</th>
                     <th class="col-link-1">VanDa</th>
                     <th class="col-link-2">WMS</th>
+					<th class="col-kemi">Kemi</th>
                     <th class="col-summary" id="summaryHeader">Uge ?</th>
                 </tr>
             </thead>
@@ -604,7 +627,7 @@
 <div id="view-dist" class="view-section">
     <div class="toolbar">
         <button class="primary" onclick="addEmployee()">+ Tilføj Medarbejder</button>
-		<span style="color: var(--text-muted); font-size: 12px; margin-left: 15px;">Højreklik på et togt for at dele det (eller omdøbe en del).</span>
+		<span style="color: var(--text-muted); font-size: 12px; margin-left: 15px;">Grønne togter med vandføring, grå togter kun kemi. Højreklik på et togt for at opdele. Dobbeltklik for ferie eller lign.</span>
     </div>
     <div class="sheet-container">
         <table id="distGrid">
@@ -721,6 +744,7 @@
 	let fileHandle = null, displayWeek = 1, selectedIndices = new Set(), isLocked = true;
     let hasUnsavedChanges = false;
     let lastFileModTime = 0;
+	let isSavingFile = false;
 
     const AUTO_SAVE_INTERVAL_MS = 60000;
     const INACTIVITY_WARNING_MS = 9 * 60 * 1000; 
@@ -760,12 +784,16 @@
     setInterval(() => { const chk = document.getElementById('chkAutoSave'); if (chk && chk.checked && hasUnsavedChanges && fileHandle) performAutoSave(); }, AUTO_SAVE_INTERVAL_MS);
     setInterval(checkForExternalUpdates, POLL_INTERVAL_MS);
 
-    async function checkForExternalUpdates() {
-        if (!fileHandle) return;
+	async function checkForExternalUpdates() {
+        if (!fileHandle || isSavingFile) return; // Afbryder hvis vi selv er ved at gemme
         try {
             const fileOnDisk = await fileHandle.getFile();
-            if (fileOnDisk.lastModified > lastFileModTime + 2000) { document.getElementById('updateBanner').style.display = 'block'; }
-        } catch (e) { console.log("Fejl i poll:", e); }
+            if (fileOnDisk.lastModified > lastFileModTime + 10000) { 
+                document.getElementById('updateBanner').style.display = 'block'; 
+            }
+        } catch (e) { 
+            console.log("Fejl i poll:", e); 
+        }
     }
 
     function resetInactivityTimer() { if(document.getElementById('warningModal').style.display === 'flex') return; clearTimeout(inactivityTimer); inactivityTimer = setTimeout(showInactivityWarning, INACTIVITY_WARNING_MS); }
@@ -850,18 +878,52 @@
         } 
     }
 
-    async function performSave(silent = false) {
-        if (!fileHandle) { try { fileHandle = await window.showSaveFilePicker({ suggestedName: 'plan.json' }); await saveHandle(fileHandle); } catch (e) { return false; } }
+	async function performSave(silent = false) {
+        if (!fileHandle) { 
+            if(!silent) alert("Ingen fil er valgt. Brug 'Åbn' eller 'Gem som'."); 
+            return false; 
+        }
+        
+        if (isSavingFile) return false; // Undgå dobbelt-gemning
+        
         try {
+            isSavingFile = true; // Lås aktiveres
+            
             const fileOnDisk = await fileHandle.getFile();
-            if (fileOnDisk.lastModified > lastFileModTime + 10000) { if(!silent) alert("KONFLIKT!\n\nEn anden har ændret filen siden du åbnede den.\nGemning afbrudt."); return false; }
-            const writable = await fileHandle.createWritable(); await writable.write(JSON.stringify(appData)); await writable.close();
-            const newFile = await fileHandle.getFile(); lastFileModTime = newFile.lastModified;
-            document.getElementById('currentFileName').innerText = fileHandle.name; markDirty(false);
-            const btn = document.getElementById('btnSave'); if(!silent) { btn.innerText = "Gemt!"; setTimeout(() => { btn.innerText = "Gem"; }, 1000); }
+            // Tjekker kun for konflikt, hvis forskellen er over 10 sekunder
+            if (fileOnDisk.lastModified > lastFileModTime + 10000) { 
+                if(!silent) alert("KONFLIKT!\n\nEn anden har ændret filen siden du åbnede den.\nGemning afbrudt."); 
+                isSavingFile = false;
+                return false; 
+            }
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(appData));
+            await writable.close();
+            
+            // Aflæs og gem det nøjagtige tidsstempel fra styresystemet efter vores egen skrivning
+            const updatedFile = await fileHandle.getFile();
+            lastFileModTime = updatedFile.lastModified;
+            
+            markDirty(false);
+            if(!silent) {
+                const btn = document.querySelector('.toolbar button:nth-child(4)'); 
+                if(btn) {
+                    const oldText = btn.innerText;
+                    btn.innerText = "Gemt!";
+                    setTimeout(() => btn.innerText = oldText, 2000);
+                }
+            }
             return true;
-        } catch (e) { if(!silent) alert("Fejl: " + e); return false; }
+        } catch (error) {
+            console.error(error);
+            if(!silent) alert("Der opstod en fejl under gemning.\n" + error.message);
+            return false;
+        } finally {
+            isSavingFile = false; // Lås deaktiveres uanset om gemning lykkedes eller fejlede
+        }
     }
+
     async function performAutoSave() { const btn = document.getElementById('btnSave'); const originalText = btn.innerText; btn.innerText = "Gemmer..."; const success = await performSave(true); if(success) setTimeout(() => { btn.innerText = originalText; }, 1000); }
     document.getElementById('btnSave').onclick = async () => { await performSave(false); };
     document.addEventListener('keydown', e => { 
@@ -938,7 +1000,8 @@
         const btnDel = document.getElementById('btnDeleteRow'); // <-- NY: Hent slette-knappen
         const tabSet = document.getElementById('tabSettings');
 
-        if (isLocked) { 
+        if (isLocked) {
+			document.body.classList.remove('is-unlocked');
             btn.innerText = "Låst (Visning)"; 
             btn.className = "locked-btn"; 
             
@@ -955,7 +1018,8 @@
 
             tabSet.classList.add('disabled-element'); 
         } 
-        else { 
+        else {
+			document.body.classList.add('is-unlocked');
             btn.innerText = "Rediger (Aktiv)"; 
             btn.className = "unlocked-btn"; 
             
@@ -982,14 +1046,15 @@
         if (selectedIndices.size === 0) return alert("Vælg mindst én række først.");
         const sortedIndices = Array.from(selectedIndices).sort((a, b) => a - b);
         if (mode === 'excel') {
-            let htmlContent = `<table border="1" style="border-collapse: collapse;"><thead><tr><th>Togt</th><th>Station</th><th>Nr</th><th>VanDa</th><th>WMS</th><th>Uge ${displayWeek}</th></tr></thead><tbody>`;
+            let htmlContent = `<table border="1" style="border-collapse: collapse;"><thead><tr><th>Togt</th><th>Station</th><th>Nr</th><th>VanDa</th><th>WMS</th><th>Kemi</th><th>Uge ${displayWeek}</th></tr></thead><tbody>`;
             sortedIndices.forEach(idx => {
                 const row = appData.rows[idx];
                 const station = row.station || ""; const nr = row.nr || ""; const togt = row.togt || "";
                 const kode = (row.weeks && row.weeks[displayWeek-1]) ? row.weeks[displayWeek-1].val : "";
                 const vandaLink = row.vandaLink ? `<a href="${row.vandaLink}">VanDa</a>` : "";
                 const wmsLink = row.wmsLink ? `<a href="${row.wmsLink}">WMS</a>` : "";
-                htmlContent += `<tr><td>${togt}</td><td>${station}</td><td>${nr}</td><td>${vandaLink}</td><td>${wmsLink}</td><td>${kode}</td></tr>`;
+                const kemi = row.kemi || "";
+                htmlContent += `<tr><td>${togt}</td><td>${station}</td><td>${nr}</td><td>${vandaLink}</td><td>${wmsLink}</td><td>${kemi}</td><td>${kode}</td></tr>`;
             });
             
 			htmlContent += `</tbody></table>`;
@@ -1100,7 +1165,7 @@
     }
 	
 	// --- MULTI-PASTE TIL STAMDATA (Togt, Station, Nr, VanDa, WMS) ---
-    const META_COLS = ['togt', 'station', 'nr', 'vandaLink', 'wmsLink'];
+    const META_COLS = ['togt', 'station', 'nr', 'vandaLink', 'wmsLink', 'kemi'];
 
 
     function handleMetaPaste(e, rIdx, startColKey) {
@@ -1161,6 +1226,8 @@
                 // Formateringsregler for specifikke kolonner
                 if (targetKey === 'nr') {
                     text = text.replace(/\D/g, '').substring(0, 8);
+                } else if (targetKey === 'kemi') {
+                    text = text.replace(/\D/g, '').substring(0, 4);
                 } else if (targetKey === 'station') {
                     text = text.replace(/(\r\n|\n|\r)/gm, " ");
                 }
@@ -1327,6 +1394,26 @@
             if (isLocked) { if(row.wmsLink) tdWms.innerHTML = `<a href="${row.wmsLink}" target="_blank" class="cell-link" onclick="event.stopPropagation()">WMS</a>`; } 
             else { const inp = document.createElement('input'); inp.type = "text"; inp.value = row.wmsLink || ""; inp.placeholder = "URL..."; inp.style.width = "90%"; inp.onfocus = () => { saveHistory(); }; inp.oninput = (e) => { appData.rows[rIdx].wmsLink = e.target.value; markDirty(true); }; inp.onclick = (e) => e.stopPropagation(); inp.addEventListener('paste', (e) => handleMetaPaste(e, rIdx, 'wmsLink')); tdWms.appendChild(inp); }
             tr.appendChild(tdWms);
+			
+			const tdKemi = document.createElement('td'); tdKemi.className = 'col-kemi';
+            if (!isLocked) { 
+                const inp = document.createElement('input'); 
+                inp.type = "text"; 
+                inp.value = row.kemi || ""; 
+                inp.placeholder = "Tal..."; 
+                inp.style.width = "90%"; 
+                inp.onfocus = () => { saveHistory(); }; 
+                inp.oninput = (e) => { 
+                    const raw = e.target.value.replace(/\D/g, '').substring(0, 4);
+                    if (e.target.value !== raw) e.target.value = raw;
+                    appData.rows[rIdx].kemi = raw; 
+                    markDirty(true); 
+                }; 
+                inp.onclick = (e) => e.stopPropagation(); 
+                inp.addEventListener('paste', (e) => handleMetaPaste(e, rIdx, 'kemi')); 
+                tdKemi.appendChild(inp); 
+            }
+            tr.appendChild(tdKemi);
 
             const summaryTd = document.createElement('td'); summaryTd.className = 'col-summary';
             const weekData = (row.weeks && row.weeks[displayWeek-1]) ? row.weeks[displayWeek-1] : {val:'', stat:0};
@@ -1585,7 +1672,7 @@
             }, 0); 
         }
     }
-    function addRow() {saveHistory(); appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', weeks: {} }); markDirty(true); render(); }
+    function addRow() {saveHistory(); appData.rows.push({ station: '', nr: '', togt: '', vandaLink: '', wmsLink: '', kemi: '', weeks: {} }); markDirty(true); render(); }
 	function deleteSelectedRows() {
         // Tjek om der er valgt noget
         if (selectedIndices.size === 0) {
